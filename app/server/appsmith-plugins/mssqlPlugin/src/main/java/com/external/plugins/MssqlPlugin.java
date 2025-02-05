@@ -1,5 +1,6 @@
 package com.external.plugins;
 
+import com.appsmith.external.configurations.connectionpool.ConnectionPoolConfig;
 import com.appsmith.external.constants.DataType;
 import com.appsmith.external.datatypes.AppsmithType;
 import com.appsmith.external.dtos.ExecuteActionDTO;
@@ -8,6 +9,7 @@ import com.appsmith.external.exceptions.pluginExceptions.AppsmithPluginException
 import com.appsmith.external.exceptions.pluginExceptions.StaleConnectionException;
 import com.appsmith.external.helpers.DataTypeServiceUtils;
 import com.appsmith.external.helpers.MustacheHelper;
+import com.appsmith.external.helpers.Stopwatch;
 import com.appsmith.external.models.ActionConfiguration;
 import com.appsmith.external.models.ActionExecutionRequest;
 import com.appsmith.external.models.ActionExecutionResult;
@@ -34,9 +36,9 @@ import com.zaxxer.hikari.pool.HikariPool;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.ObjectUtils;
 import org.pf4j.Extension;
 import org.pf4j.PluginWrapper;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
@@ -62,6 +64,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
 
@@ -70,6 +73,7 @@ import static com.appsmith.external.constants.PluginConstants.PluginName.MSSQL_P
 import static com.appsmith.external.helpers.PluginUtils.getIdenticalColumns;
 import static com.appsmith.external.helpers.PluginUtils.getPSParamLabel;
 import static com.appsmith.external.helpers.SmartSubstitutionHelper.replaceQuestionMarkWithDollarIndex;
+import static com.external.plugins.constants.MssqlPluginConstants.GENERATE_CRUD_PAGE_SELECT_QUERY;
 import static com.external.plugins.exceptions.MssqlErrorMessages.CONNECTION_CLOSED_ERROR_MSG;
 import static com.external.plugins.exceptions.MssqlErrorMessages.CONNECTION_INVALID_ERROR_MSG;
 import static com.external.plugins.exceptions.MssqlErrorMessages.CONNECTION_NULL_ERROR_MSG;
@@ -77,6 +81,8 @@ import static com.external.plugins.utils.MssqlDatasourceUtils.logHikariCPStatus;
 import static com.external.plugins.utils.MssqlExecuteUtils.closeConnectionPostExecution;
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.springframework.util.CollectionUtils.isEmpty;
 
 @Slf4j
 public class MssqlPlugin extends BasePlugin {
@@ -109,6 +115,12 @@ public class MssqlPlugin extends BasePlugin {
 
         private static final int PREPARED_STATEMENT_INDEX = 0;
 
+        private final ConnectionPoolConfig connectionPoolConfig;
+
+        public MssqlPluginExecutor(ConnectionPoolConfig connectionPoolConfig) {
+            this.connectionPoolConfig = connectionPoolConfig;
+        }
+
         /**
          * Instead of using the default executeParametrized provided by pluginExecutor, this implementation affords an opportunity
          * to use PreparedStatement (if configured) which requires the variable substitution, etc. to happen in a particular format
@@ -130,6 +142,7 @@ public class MssqlPlugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": executeParameterized() called for MSSQL plugin.");
             String query = actionConfiguration.getBody();
             // Check for query parameter before performing the probably expensive fetch connection from the pool op.
             if (!StringUtils.hasLength(query)) {
@@ -162,7 +175,7 @@ public class MssqlPlugin extends BasePlugin {
                 return executeCommon(hikariDSConnection, actionConfiguration, FALSE, null, null);
             }
 
-            // Prepared Statement
+            // Prepared statement
             // First extract all the bindings in order
             List<MustacheBindingToken> mustacheKeysInOrder = MustacheHelper.extractMustacheKeysInOrder(query);
             // Replace all the bindings with a `?` as expected in a prepared statement.
@@ -178,6 +191,7 @@ public class MssqlPlugin extends BasePlugin {
                 List<MustacheBindingToken> mustacheValuesInOrder,
                 ExecuteActionDTO executeActionDTO) {
 
+            log.debug(Thread.currentThread().getName() + ": executeCommon() called for MSSQL plugin.");
             final Map<String, Object> requestData = new HashMap<>();
             requestData.put("preparedStatement", TRUE.equals(preparedStatement) ? true : false);
 
@@ -188,6 +202,7 @@ public class MssqlPlugin extends BasePlugin {
                     List.of(new RequestParamDTO(ACTION_CONFIGURATION_BODY, transformedQuery, null, null, psParams));
 
             return Mono.fromCallable(() -> {
+                        log.debug(Thread.currentThread().getName() + ": within mono callable from MSSQL plugin.");
                         boolean isResultSet;
                         Connection sqlConnectionFromPool;
                         Statement statement = null;
@@ -215,7 +230,7 @@ public class MssqlPlugin extends BasePlugin {
                             if (sqlConnectionFromPool == null
                                     || sqlConnectionFromPool.isClosed()
                                     || !sqlConnectionFromPool.isValid(VALIDITY_CHECK_TIMEOUT)) {
-                                log.info("Encountered stale connection in MsSQL plugin. Reporting back.");
+                                log.debug("Encountered stale connection in MsSQL plugin. Reporting back.");
 
                                 if (sqlConnectionFromPool == null) {
                                     return Mono.error(new StaleConnectionException(CONNECTION_NULL_ERROR_MSG));
@@ -234,7 +249,8 @@ public class MssqlPlugin extends BasePlugin {
                             // This exception is thrown only when the timeout to `isValid` is negative. Since, that's
                             // not the case,
                             // here, this should never happen.
-                            log.error("Error checking validity of MsSQL connection.", error);
+                            log.error("Error checking validity of MsSQL connection.");
+                            error.printStackTrace();
                         }
 
                         // Log HikariCP status
@@ -293,10 +309,13 @@ public class MssqlPlugin extends BasePlugin {
                         }
 
                         ActionExecutionResult result = new ActionExecutionResult();
+                        log.debug(Thread.currentThread().getName()
+                                + ": objectMapper.valueToTree invoked from MSSQL plugin.");
+                        Stopwatch processStopwatch = new Stopwatch("MSSQL Plugin objectMapper valueToTree");
                         result.setBody(objectMapper.valueToTree(rowsList));
+                        processStopwatch.stopAndLogTimeInMillis();
                         result.setMessages(populateHintMessages(columnsList));
                         result.setIsExecutionSuccess(true);
-                        log.debug("In the MssqlPlugin, got action execution result");
                         return Mono.just(result);
                     })
                     .flatMap(obj -> obj)
@@ -312,6 +331,8 @@ public class MssqlPlugin extends BasePlugin {
                     })
                     // Now set the request in the result to be returned back to the server
                     .map(actionExecutionResult -> {
+                        log.debug(Thread.currentThread().getName()
+                                + ": setting request in the actionExecutionResult from MSSQL plugin.");
                         ActionExecutionRequest request = new ActionExecutionRequest();
                         request.setQuery(query);
                         request.setProperties(requestData);
@@ -329,7 +350,7 @@ public class MssqlPlugin extends BasePlugin {
             Set<String> messages = new HashSet<>();
 
             List<String> identicalColumns = getIdenticalColumns(columnNames);
-            if (!CollectionUtils.isEmpty(identicalColumns)) {
+            if (!isEmpty(identicalColumns)) {
                 messages.add("Your MsSQL query result may not have all the columns because duplicate column names "
                         + "were found for the column(s): "
                         + String.join(", ", identicalColumns) + ". You may use the "
@@ -341,9 +362,14 @@ public class MssqlPlugin extends BasePlugin {
 
         @Override
         public Mono<HikariDataSource> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
-            return Mono.fromCallable(() -> {
-                        log.debug("Connecting to SQL Server db");
-                        return createConnectionPool(datasourceConfiguration);
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for MSSQL plugin.");
+            return connectionPoolConfig
+                    .getMaxConnectionPoolSize()
+                    .flatMap(maxPoolSize -> {
+                        return Mono.fromCallable(() -> {
+                            log.debug(Thread.currentThread().getName() + ": Connecting to SQL Server db");
+                            return createConnectionPool(datasourceConfiguration, maxPoolSize);
+                        });
                     })
                     .subscribeOn(scheduler);
         }
@@ -357,9 +383,10 @@ public class MssqlPlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(@NonNull DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for MSSQL plugin.");
             Set<String> invalids = new HashSet<>();
 
-            if (CollectionUtils.isEmpty(datasourceConfiguration.getEndpoints())) {
+            if (isEmpty(datasourceConfiguration.getEndpoints())) {
                 invalids.add(MssqlErrorMessages.DS_MISSING_ENDPOINT_ERROR_MSG);
             }
 
@@ -400,6 +427,7 @@ public class MssqlPlugin extends BasePlugin {
         @Override
         public Mono<DatasourceStructure> getStructure(
                 HikariDataSource connection, DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": getStructure() called for MSSQL plugin.");
             return MssqlDatasourceUtils.getStructure(connection, datasourceConfiguration);
         }
 
@@ -484,6 +512,49 @@ public class MssqlPlugin extends BasePlugin {
 
             return preparedStatement;
         }
+
+        /**
+         * MsSQL plugin makes use of a common template that is available for SQL query which is also used for other SQL
+         * type plugins e.g. Postgres to create select, insert, update, delete, find queries for the CRUD page. In
+         * case of MsSQL the  template select query needs to be replaced because its syntax does not match with MsSQL
+         * syntax. Hence, this method updates the template select query with the correct syntax select query for MsSQL.
+         */
+        @Override
+        public Mono<Void> sanitizeGenerateCRUDPageTemplateInfo(
+                List<ActionConfiguration> actionConfigurationList, Object... args) {
+            if (isEmpty(actionConfigurationList)) {
+                return Mono.empty();
+            }
+
+            /* Find the actionConfiguration containing select query */
+            Optional<ActionConfiguration> selectQueryConfigOptional = actionConfigurationList.stream()
+                    .filter(actionConfiguration -> actionConfiguration.getBody().contains("SELECT"))
+                    .findFirst();
+
+            if (selectQueryConfigOptional.isPresent()) {
+                ActionConfiguration selectQueryActionConfiguration = selectQueryConfigOptional.get();
+                selectQueryActionConfiguration.setBody(GENERATE_CRUD_PAGE_SELECT_QUERY);
+            }
+
+            return Mono.empty();
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                Long port = endpoints.get(0).getPort();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_" + ObjectUtils.defaultIfNull(port, MS_SQL_DEFAULT_PORT);
+                }
+            }
+            return Mono.just(identifier);
+        }
     }
 
     public static long getPort(Endpoint endpoint) {
@@ -501,8 +572,8 @@ public class MssqlPlugin extends BasePlugin {
      * @param datasourceConfiguration
      * @return connection pool
      */
-    private static HikariDataSource createConnectionPool(DatasourceConfiguration datasourceConfiguration)
-            throws AppsmithPluginException {
+    private static HikariDataSource createConnectionPool(
+            DatasourceConfiguration datasourceConfiguration, Integer maxPoolSize) throws AppsmithPluginException {
 
         DBAuth authentication = null;
         StringBuilder urlBuilder = null;
@@ -512,7 +583,11 @@ public class MssqlPlugin extends BasePlugin {
         hikariConfig = new HikariConfig();
         hikariConfig.setDriverClassName(JDBC_DRIVER);
         hikariConfig.setMinimumIdle(MINIMUM_POOL_SIZE);
-        hikariConfig.setMaximumPoolSize(MAXIMUM_POOL_SIZE);
+
+        // Use maxPoolSize from config if available, otherwise use default
+        int maximumPoolSize = maxPoolSize != null ? maxPoolSize : MAXIMUM_POOL_SIZE;
+        hikariConfig.setMaximumPoolSize(maximumPoolSize);
+
         // Configuring leak detection threshold for 60 seconds. Any connection which hasn't been released in 60 seconds
         // should get tracked (may be falsely for long running queries) as leaked connection
         hikariConfig.setLeakDetectionThreshold(LEAK_DETECTION_TIME_MS);

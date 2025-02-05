@@ -1,4 +1,4 @@
-import { PluginPackageName } from "entities/Action";
+import { PluginPackageName } from "entities/Plugin";
 
 export const DROPDOWN_TRIGGER_DIMENSION = {
   HEIGHT: "36px",
@@ -36,12 +36,6 @@ export const PluginFormInputFieldMap: Record<
     TABLE: "table",
     COLUMN: "column",
   },
-};
-
-export const DATASOURCE_DROPDOWN_SECTIONS = {
-  CONNECT_TO_QUERY: "Connect to Query",
-  CHOOSE_DATASOURCE_TO_CONNECT: "Choose datasource to connect",
-  OTHER_ACTIONS: "Other actions",
 };
 
 export const DEFAULT_QUERY_OPTIONS_COUNTS_TO_SHOW = 4;

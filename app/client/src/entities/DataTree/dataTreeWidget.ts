@@ -1,20 +1,27 @@
 import { getAllPathsFromPropertyConfig } from "entities/Widget/utils";
-import _, { get, isEmpty } from "lodash";
+import _, { get, isEmpty, omit } from "lodash";
 import memoize from "micro-memoize";
 import type { FlattenedWidgetProps } from "reducers/entityReducers/canvasWidgetsReducer";
 import type { DynamicPath } from "utils/DynamicBindingUtils";
 import { getEntityDynamicBindingPathList } from "utils/DynamicBindingUtils";
-import WidgetFactory from "utils/WidgetFactory";
-import type { WidgetEntityConfig, WidgetEntity } from "./dataTreeFactory";
+import type {
+  WidgetEntityConfig,
+  WidgetEntity,
+} from "ee/entities/DataTree/types";
 import { ENTITY_TYPE } from "./dataTreeFactory";
 import type {
   OverridingPropertyPaths,
   PropertyOverrideDependency,
-} from "./types";
-import { OverridingPropertyType } from "./types";
+} from "ee/entities/DataTree/types";
+import { OverridingPropertyType } from "ee/entities/DataTree/types";
 
-import { setOverridingProperty } from "./utils";
+import { setOverridingProperty } from "ee/entities/DataTree/utils";
 import { error } from "loglevel";
+import WidgetFactory from "WidgetProvider/factory";
+import { getComponentDimensions } from "layoutSystems/common/utils/ComponentSizeUtils";
+import type { LoadingEntitiesState } from "reducers/evaluationReducers/loadingEntitiesReducer";
+import { LayoutSystemTypes } from "layoutSystems/types";
+import { WIDGET_PROPS_TO_SKIP_FROM_EVAL } from "constants/WidgetConstants";
 
 /**
  *
@@ -60,14 +67,19 @@ import { error } from "loglevel";
  */
 
 export function getSetterConfig(
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setterConfig: Record<string, any>,
   widget: FlattenedWidgetProps,
 ) {
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const modifiedSetterConfig: Record<string, any> = {};
 
   try {
     if (setterConfig.__setters) {
       modifiedSetterConfig.__setters = {};
+
       for (const setterMethodName of Object.keys(setterConfig.__setters)) {
         const staticConfigSetter = setterConfig.__setters[setterMethodName];
 
@@ -82,9 +94,8 @@ export function getSetterConfig(
         }
 
         if (staticConfigSetter.accessor) {
-          modifiedSetterConfig.__setters[
-            setterMethodName
-          ].accessor = `${widget.widgetName}.${staticConfigSetter.accessor}`;
+          modifiedSetterConfig.__setters[setterMethodName].accessor =
+            `${widget.widgetName}.${staticConfigSetter.accessor}`;
         }
       }
     }
@@ -112,6 +123,7 @@ export function getSetterConfig(
 
         //propertyType = text, button etc
         const propertyType = accessorObject[property];
+
         if (!propertyType) continue;
 
         // "text": {
@@ -122,9 +134,11 @@ export function getSetterConfig(
         //     }
         // }
         const accessorSetterConfig = setterConfig[propertyType];
+
         if (!accessorSetterConfig) continue;
 
         const accessorSettersMap = accessorSetterConfig.__setters;
+
         if (!accessorSettersMap) continue;
 
         const entries = Object.entries(accessorSettersMap) as [
@@ -134,13 +148,17 @@ export function getSetterConfig(
 
         for (const [setterName, setterBody] of entries) {
           //path = primaryColumns.action.isRequired
+          // TODO: Fix this the next time the file is edited
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const path = (setterBody as any).path.replace(placeHolder, accesskey);
           const setterPathArray = path.split(".");
+
           setterPathArray.pop();
           setterPathArray.push(setterName);
 
           //setterPath = primaryColumns.action.setIsRequired
           const setterPath = setterPathArray.join(".");
+
           modifiedSetterConfig.__setters[setterPath] = {
             path: `${widget.widgetName}.${path}`, //Table2.primaryColumns.action.isRequired
             type: setterBody.type,
@@ -159,13 +177,19 @@ export function getSetterConfig(
 // Widget changes only when dynamicBindingPathList changes.
 // Only meta properties change very often, for example typing in an input or selecting a table row.
 const generateDataTreeWidgetWithoutMeta = (
-  widget: FlattenedWidgetProps,
+  widgetWithEval: FlattenedWidgetProps,
 ): {
   dataTreeWidgetWithoutMetaProps: WidgetEntity;
   overridingMetaPropsMap: Record<string, boolean>;
   defaultMetaProps: Record<string, unknown>;
   entityConfig: WidgetEntityConfig;
 } => {
+  const widget = omit(
+    widgetWithEval,
+    Object.keys(WIDGET_PROPS_TO_SKIP_FROM_EVAL),
+  ) as FlattenedWidgetProps;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const derivedProps: any = {};
   const blockedDerivedProps: Record<string, true> = {};
   const unInitializedDefaultProps: Record<string, undefined> = {};
@@ -180,14 +204,19 @@ const generateDataTreeWidgetWithoutMeta = (
   );
   const defaultProps = WidgetFactory.getWidgetDefaultPropertiesMap(widget.type);
 
+  const dependencyMap = WidgetFactory.getWidgetDependencyMap(widget.type);
+
   const propertyPaneConfigs = WidgetFactory.getWidgetPropertyPaneConfig(
     widget.type,
+    widget,
   );
   const dynamicBindingPathList = getEntityDynamicBindingPathList(widget);
+
   // Ensure all dynamic bindings are strings as they will be evaluated
   dynamicBindingPathList.forEach((dynamicPath) => {
     const propertyPath = dynamicPath.key;
     const propertyValue = _.get(widget, propertyPath);
+
     if (_.isObject(propertyValue)) {
       // Stringify this because composite controls may have bindings in the sub controls
       _.set(widget, propertyPath, JSON.stringify(propertyValue));
@@ -221,6 +250,7 @@ const generateDataTreeWidgetWithoutMeta = (
       if (!(defaultPropertyName in widget)) {
         unInitializedDefaultProps[defaultPropertyName] = undefined;
       }
+
       // defaultProperty on eval needs to override the widget's property eg: defaultText overrides text
       setOverridingProperty({
         propertyOverrideDependency,
@@ -297,8 +327,10 @@ const generateDataTreeWidgetWithoutMeta = (
     dynamicPropertyPathList?: DynamicPath[];
     dynamicTriggerPathList?: DynamicPath[];
   } = {};
+
   if (widget.dynamicPropertyPathList)
     dynamicPathsList.dynamicPropertyPathList = widget.dynamicPropertyPathList;
+
   if (widget.dynamicTriggerPathList)
     dynamicPathsList.dynamicTriggerPathList = widget.dynamicTriggerPathList;
 
@@ -307,6 +339,7 @@ const generateDataTreeWidgetWithoutMeta = (
     overridingMetaPropsMap,
     defaultMetaProps,
     entityConfig: {
+      widgetId: widget.widgetId,
       defaultProps,
       defaultMetaProps: Object.keys(defaultMetaProps),
       dynamicBindingPathList,
@@ -318,6 +351,7 @@ const generateDataTreeWidgetWithoutMeta = (
       reactivePaths,
       triggerPaths,
       validationPaths,
+      dependencyMap,
       ENTITY_TYPE: ENTITY_TYPE.WIDGET,
       privateWidgets: {
         ...widget.privateWidgets,
@@ -343,6 +377,9 @@ const generateDataTreeWidgetWithoutMetaMemoized = memoize(
 export const generateDataTreeWidget = (
   widget: FlattenedWidgetProps,
   widgetMetaProps: Record<string, unknown> = {},
+  loadingEntities: LoadingEntitiesState,
+  layoutSystemType: LayoutSystemTypes = LayoutSystemTypes.FIXED,
+  isMobile = false,
 ) => {
   const {
     dataTreeWidgetWithoutMetaProps: dataTreeWidget,
@@ -354,7 +391,6 @@ export const generateDataTreeWidget = (
 
   // overridingMetaProps maps properties that can be overriden by either default values or meta changes to initial values.
   // initial value is set to metaProps value or defaultMetaProps value.
-
   Object.entries(defaultMetaProps).forEach(([key, value]) => {
     if (overridingMetaPropsMap[key]) {
       overridingMetaProps[key] =
@@ -376,9 +412,21 @@ export const generateDataTreeWidget = (
   });
 
   dataTreeWidget["meta"] = meta;
+  dataTreeWidget["isLoading"] = loadingEntities.has(widget.widgetName);
+
+  const { componentHeight, componentWidth } = getComponentDimensions(
+    dataTreeWidget,
+    layoutSystemType,
+    isMobile,
+  );
 
   return {
-    unEvalEntity: { ...dataTreeWidget, type: widget.type },
-    configEntity: { ...entityConfig, widgetId: dataTreeWidget.widgetId },
+    unEvalEntity: {
+      ...dataTreeWidget,
+      componentHeight,
+      componentWidth,
+      type: widget.type,
+    },
+    configEntity: entityConfig,
   };
 };

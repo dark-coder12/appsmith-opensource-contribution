@@ -3,14 +3,12 @@ const fs = require("fs");
 const path = require("path");
 const dotenv = require("dotenv");
 const chalk = require("chalk");
-// const _ = require("lodash");
-// const del = require("del");
 const cypressLogToOutput = require("cypress-log-to-output");
-//const { isFileExist } = require("cy-verify-downloads");
-const {
-  addMatchImageSnapshotPlugin,
-} = require("cypress-image-snapshot/plugin");
+const installLogsPrinter = require("cypress-terminal-report/src/installLogsPrinter");
 const { tagify } = require("cypress-tags");
+const { cypressHooks } = require("../scripts/cypress-hooks");
+const { dynamicSplit } = require("../scripts/cypress-split-dynamic");
+const { staticSplit } = require("../scripts/cypress-split-static");
 // ***********************************************************
 // This example plugins/index.js can be used to load plugins
 //
@@ -28,13 +26,7 @@ const { tagify } = require("cypress-tags");
  * @type {Cypress.PluginConfig}
  */
 
-module.exports = (on, config) => {
-  // on("task", {
-  //   isFileExist,
-  // });
-  // `on` is used to hook into various events Cypress emits
-  // `config` is the resolved Cypress config
-
+module.exports = async (on, config) => {
   cypressLogToOutput.install(on, (type, event) => {
     if (event.level === "error" || event.type === "error") {
       return true;
@@ -42,8 +34,17 @@ module.exports = (on, config) => {
     return false;
   });
 
+  const logsPrinterOptions = {
+    outputRoot: config.projectRoot + "/cypress/",
+    outputTarget: {
+      "cypress-logs|json": "json",
+    },
+    specRoot: "cypress/e2e",
+    printLogsToFile: "onFail",
+  };
+  installLogsPrinter(on, logsPrinterOptions);
+
   on("file:preprocessor", tagify(config));
-  addMatchImageSnapshotPlugin(on, config);
 
   on("before:browser:launch", (browser = {}, launchOptions) => {
     /*
@@ -54,7 +55,7 @@ module.exports = (on, config) => {
       browser,
       launchOptions.args,
     );
-    if (browser.name === "chrome") {
+    if (browser.name === "chrome" || browser.name === "chromium") {
       const video = path.join(
         "cypress",
         "fixtures",
@@ -74,26 +75,12 @@ module.exports = (on, config) => {
       // && browser.isHeadless) {
       launchOptions.preferences.fullscreen = true;
       launchOptions.preferences.darkTheme = true;
-      launchOptions["width"] = 1400;
-      launchOptions["height"] = 1100;
-      launchOptions["resizable"] = false;
+      launchOptions.preferences.width = 1400;
+      launchOptions.preferences.height = 1100;
+      launchOptions.preferences.resizable = false;
       return launchOptions;
     }
   });
-  // module.exports = (on, config) => {
-  //   on("after:spec", (spec, results) => {
-  //     if (results && results.video) {
-  //       // Do we have failures for any retry attempts?
-  //       const failures = _.some(results.tests, (test) => {
-  //         return _.some(test.attempts, { state: "failed" });
-  //       });
-  //       if (!failures) {
-  //         // delete the video if the spec passed and no tests retried
-  //         return del(results.video);
-  //       }
-  //     }
-  //   });
-  // };
 
   /**
    * Fallback to APPSMITH_* env variables for Cypress.env if config.env doesn't already have it.
@@ -163,7 +150,7 @@ module.exports = (on, config) => {
     },
 
     /*
-    Change video source for for camera & code scanner 
+    Change video source for for camera & code scanner
     */
     changeVideoSource(videoSource) {
       console.log("TASK - Changing video source to", videoSource);
@@ -212,6 +199,25 @@ module.exports = (on, config) => {
       return null;
     },
   });
+
+  console.log("Type of 'config.specPattern':", typeof config.specPattern);
+  /**
+   * Cypress grep plug return specPattern as object and with absolute path
+   */
+  if (typeof config.specPattern == "object") {
+    config.specPattern = config.specPattern.map((spec) => {
+      return spec.replace(process.cwd() + "/", "");
+    });
+  }
+  console.log("config.specPattern:", config.specPattern);
+
+  if (process.env["RUNID"]) {
+    config =
+      process.env["CYPRESS_STATIC_ALLOCATION"] == "true"
+        ? await new staticSplit().splitSpecs(config)
+        : await new dynamicSplit().splitSpecs(config);
+    cypressHooks(on, config);
+  }
 
   return config;
 };

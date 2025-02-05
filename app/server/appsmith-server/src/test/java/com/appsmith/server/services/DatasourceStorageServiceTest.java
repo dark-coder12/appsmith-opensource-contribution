@@ -5,7 +5,10 @@ import com.appsmith.external.models.Datasource;
 import com.appsmith.external.models.DatasourceConfiguration;
 import com.appsmith.external.models.DatasourceStorage;
 import com.appsmith.external.models.Endpoint;
+import com.appsmith.server.applications.base.ApplicationService;
 import com.appsmith.server.constants.FieldName;
+import com.appsmith.server.datasourcestorages.base.DatasourceStorageService;
+import com.appsmith.server.domains.Application;
 import com.appsmith.server.domains.Plugin;
 import com.appsmith.server.domains.User;
 import com.appsmith.server.domains.Workspace;
@@ -13,18 +16,19 @@ import com.appsmith.server.exceptions.AppsmithError;
 import com.appsmith.server.exceptions.AppsmithException;
 import com.appsmith.server.helpers.MockPluginExecutor;
 import com.appsmith.server.helpers.PluginExecutorHelper;
+import com.appsmith.server.plugins.base.PluginService;
 import com.appsmith.server.repositories.UserRepository;
+import com.appsmith.server.solutions.ApplicationPermission;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.security.test.context.support.WithUserDetails;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -34,7 +38,6 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@ExtendWith(SpringExtension.class)
 @SpringBootTest
 @Slf4j
 public class DatasourceStorageServiceTest {
@@ -54,12 +57,34 @@ public class DatasourceStorageServiceTest {
     @Autowired
     PluginService pluginService;
 
+    @Autowired
+    ApplicationService applicationService;
+
+    @Autowired
+    ApplicationPageService applicationPageService;
+
+    @Autowired
+    ApplicationPermission applicationPermission;
+
+    Workspace workspace;
+
     @BeforeEach
     public void setup() {
         Mono<User> userMono = userRepository.findByEmail("api_user").cache();
-        Workspace workspace = userMono.flatMap(user -> workspaceService.createDefault(new Workspace(), user))
+        workspace = userMono.flatMap(user -> workspaceService.createDefault(new Workspace(), user))
                 .switchIfEmpty(Mono.error(new Exception("createDefault is returning empty!!")))
                 .block();
+    }
+
+    @AfterEach
+    public void cleanup() {
+        List<Application> deletedApplications = applicationService
+                .findByWorkspaceId(workspace.getId(), applicationPermission.getDeletePermission())
+                .flatMap(remainingApplication -> applicationPageService.deleteApplication(remainingApplication.getId()))
+                .collectList()
+                .block();
+        Workspace deletedWorkspace =
+                workspaceService.archiveById(workspace.getId()).block();
     }
 
     @Test

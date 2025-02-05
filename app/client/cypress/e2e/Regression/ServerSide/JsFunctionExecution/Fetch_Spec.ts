@@ -1,11 +1,16 @@
 import {
   agHelper,
+  apiPage,
+  dataManager,
   entityExplorer,
   jsEditor,
   propPane,
 } from "../../../../support/Objects/ObjectsCore";
+import EditorNavigation, {
+  EntityType,
+} from "../../../../support/Pages/EditorNavigation";
 
-describe("Tests fetch calls", () => {
+describe("Tests fetch calls", { tags: ["@tag.JS", "@tag.Binding"] }, () => {
   it("1. Ensures that cookies are not passed with fetch calls", function () {
     jsEditor.CreateJSObject(
       `export default {
@@ -72,20 +77,26 @@ describe("Tests fetch calls", () => {
     agHelper.AssertContains("anonymousUser", "exist");
   });
 
-  it.skip("3. Tests if fetch works with store value", function () {
-    entityExplorer.NavigateToSwitcher("Widgets");
+  it("3. Tests if fetch works with store value", function () {
+    apiPage.CreateAndFillApi(
+      dataManager.dsValues[dataManager.defaultEnviorment].mockGenderAge +
+        `{{this.params.person}}`,
+      "Gender_Age",
+    );
+    apiPage.RunAPI();
     entityExplorer.DragDropWidgetNVerify("buttonwidget", 500, 200);
-    entityExplorer.SelectEntityByName("Button1");
-    propPane.TypeTextIntoField("Label", "getUserID");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
+    propPane.TypeTextIntoField("Label", "getUserName");
     propPane.EnterJSContext(
       "onClick",
-      `{{fetch('https://jsonplaceholder.typicode.com/todos/1')
-    .then(res => res.json())
-    .then(json => storeValue('userId', json.userId))
-    .then(() => showAlert("UserId: " + appsmith.store.userId))}}`,
+      `{{(async function(){
+          const gender = await Gender_Age.run({ person: "sagar" });
+          storeValue("Gender", gender);
+          showAlert("Your name is " + appsmith.store.Gender.name);
+        })()}}`,
     );
-    agHelper.Sleep(2000);
-    agHelper.ClickButton("getUserID");
-    agHelper.AssertContains("UserId: 1", "exist");
+
+    agHelper.ClickButton("getUserName");
+    agHelper.AssertContains("Your name is sagar", "exist");
   });
 });

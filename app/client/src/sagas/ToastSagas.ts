@@ -1,14 +1,14 @@
-import type { ToastProps } from "design-system";
-import { toast } from "design-system";
+import type { ToastProps } from "@appsmith/ads";
+import { toast } from "@appsmith/ads";
 import { APP_MODE } from "entities/App";
 import { select } from "redux-saga/effects";
-import { getAppMode } from "selectors/entitiesSelector";
+import { getAppMode } from "ee/selectors/entitiesSelector";
 import log from "loglevel";
 
-type ExtraOptions = {
+interface ExtraOptions {
   // This enables showing of toast no matter the conditions
   forceDisplay?: boolean;
-};
+}
 
 /**
  * Shows toast
@@ -26,8 +26,10 @@ export default function* showToast(
   const urlObject = new URL(window?.location?.href);
   const debugFlag = urlObject?.searchParams?.get("debug");
   const debug = debugFlag === "true" || debugFlag;
+
   if (appMode === APP_MODE.PUBLISHED && !debug && !extraOtions?.forceDisplay) {
     log.error(message);
+
     return;
   }
 

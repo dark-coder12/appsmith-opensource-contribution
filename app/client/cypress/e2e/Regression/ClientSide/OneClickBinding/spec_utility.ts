@@ -1,4 +1,7 @@
-import { agHelper } from "../../../../support/Objects/ObjectsCore";
+import {
+  agHelper,
+  assertHelper,
+} from "../../../../support/Objects/ObjectsCore";
 import oneClickBindingLocator from "../../../../locators/OneClickBindingLocator";
 
 export class OneClickBinding {
@@ -9,18 +12,29 @@ export class OneClickBinding {
     column: Record<string, string> = {},
   ) {
     agHelper.GetNClick(oneClickBindingLocator.datasourceDropdownSelector);
-
+    agHelper.GetElement("[role='menu']").then(($menu) => {
+      if (
+        $menu.find(oneClickBindingLocator.datasourceQuerySelector()).length > 0
+      ) {
+        cy.wrap($menu)
+          .find(oneClickBindingLocator.datasourceQuerySelector())
+          .should("have.length.greaterThan", 0)
+          .each(($item) => {
+            cy.wrap($item)
+              .find("img")
+              .should(($img) => {
+                expect($img).to.have.attr("src").and.not.be.empty;
+              });
+          });
+      }
+    });
     expandLoadMoreOptions();
 
     agHelper.AssertElementAbsence(oneClickBindingLocator.connectData);
 
     agHelper.GetNClick(oneClickBindingLocator.datasourceSelector(source));
 
-    cy.wait("@getDatasourceStructure").should(
-      "have.nested.property",
-      "response.body.responseMeta.status",
-      200,
-    );
+    assertHelper.AssertNetworkStatus("@getDatasourceStructure");
 
     agHelper.AssertElementExist(oneClickBindingLocator.connectData);
 
@@ -59,6 +73,20 @@ export class OneClickBinding {
       false,
     );
   }
+
+  public ChooseQuery(queryName: string) {
+    agHelper.GetNClick(oneClickBindingLocator.datasourceDropdownSelector);
+
+    agHelper.TypeText(oneClickBindingLocator.datasourceSearch, queryName);
+
+    agHelper
+      .GetElement(oneClickBindingLocator.datasourceQuerySelector())
+      .then(($ele) => {
+        expect($ele.length).greaterThan(0);
+      });
+
+    agHelper.GetNClick(oneClickBindingLocator.datasourceQuerySelector());
+  }
 }
 
 export function expandLoadMoreOptions() {
@@ -66,7 +94,7 @@ export function expandLoadMoreOptions() {
     if ($ele.find(oneClickBindingLocator.loadMore).length > 0) {
       const length = $ele.find(oneClickBindingLocator.loadMore).length;
       new Array(length).fill(" ").forEach((d, i) => {
-        agHelper.GetNClick(oneClickBindingLocator.loadMore, i);
+        agHelper.GetNClick(oneClickBindingLocator.loadMore, 0);
       });
     }
   });

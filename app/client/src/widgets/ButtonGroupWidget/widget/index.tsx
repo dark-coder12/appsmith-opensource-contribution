@@ -9,16 +9,234 @@ import { get } from "lodash";
 import React from "react";
 import type { WidgetProps, WidgetState } from "widgets/BaseWidget";
 import BaseWidget from "widgets/BaseWidget";
-import { MinimumPopupRows } from "widgets/constants";
+import { MinimumPopupWidthInPercentage } from "WidgetProvider/constants";
 import ButtonGroupComponent from "../component";
 import { getStylesheetValue } from "./helpers";
 import { DefaultAutocompleteDefinitions } from "widgets/WidgetUtils";
-import type { AutocompletionDefinitions } from "widgets/constants";
+import type {
+  AnvilConfig,
+  AutocompletionDefinitions,
+} from "WidgetProvider/constants";
+import { FILL_WIDGET_MIN_WIDTH } from "constants/minWidthConstants";
+import { ResponsiveBehavior } from "layoutSystems/common/utils/constants";
+import { BlueprintOperationTypes } from "WidgetProvider/constants";
+import IconSVG from "../icon.svg";
+import ThumbnailSVG from "../thumbnail.svg";
+import { WIDGET_TAGS, layoutConfigurations } from "constants/WidgetConstants";
+import { klonaFullWithTelemetry } from "utils/helpers";
 
 class ButtonGroupWidget extends BaseWidget<
   ButtonGroupWidgetProps,
   WidgetState
 > {
+  static type = "BUTTON_GROUP_WIDGET";
+
+  static getConfig() {
+    return {
+      name: "Button Group", // The display name which will be made in uppercase and show in the widgets panel ( can have spaces )
+      iconSVG: IconSVG,
+      thumbnailSVG: ThumbnailSVG,
+      needsMeta: false, // Defines if this widget adds any meta properties
+      isCanvas: false, // Defines if this widget has a canvas within in which we can drop other widgets
+      searchTags: ["click", "submit"],
+      tags: [WIDGET_TAGS.BUTTONS],
+    };
+  }
+
+  static getDefaults() {
+    return {
+      rows: 4,
+      columns: 24,
+      widgetName: "ButtonGroup",
+      orientation: "horizontal",
+      buttonVariant: ButtonVariantTypes.PRIMARY,
+      isVisible: true,
+      version: 1,
+      animateLoading: true,
+      responsiveBehavior: ResponsiveBehavior.Fill,
+      minWidth: FILL_WIDGET_MIN_WIDTH,
+      groupButtons: {
+        groupButton1: {
+          label: "Favorite",
+          iconName: "heart",
+          id: "groupButton1",
+          widgetId: "",
+          buttonType: "SIMPLE",
+          placement: "CENTER",
+          isVisible: true,
+          isDisabled: false,
+          disabledWhenInvalid: false,
+          index: 0,
+          menuItems: {},
+        },
+        groupButton2: {
+          label: "Add",
+          iconName: "add",
+          id: "groupButton2",
+          buttonType: "SIMPLE",
+          placement: "CENTER",
+          widgetId: "",
+          isVisible: true,
+          isDisabled: false,
+          disabledWhenInvalid: false,
+          index: 1,
+          menuItems: {},
+        },
+        groupButton3: {
+          label: "More",
+          iconName: "more",
+          id: "groupButton3",
+          buttonType: "MENU",
+          placement: "CENTER",
+          widgetId: "",
+          isVisible: true,
+          isDisabled: false,
+          disabledWhenInvalid: false,
+          index: 2,
+          menuItems: {
+            menuItem1: {
+              label: "First Option",
+              backgroundColor: "#FFFFFF",
+              id: "menuItem1",
+              widgetId: "",
+              onClick: "",
+              isVisible: true,
+              isDisabled: false,
+              disabledWhenInvalid: false,
+              index: 0,
+            },
+            menuItem2: {
+              label: "Second Option",
+              backgroundColor: "#FFFFFF",
+              id: "menuItem2",
+              widgetId: "",
+              onClick: "",
+              isVisible: true,
+              isDisabled: false,
+              disabledWhenInvalid: false,
+              index: 1,
+            },
+            menuItem3: {
+              label: "Delete",
+              iconName: "trash",
+              iconColor: "#FFFFFF",
+              iconAlign: "right",
+              textColor: "#FFFFFF",
+              backgroundColor: "#DD4B34",
+              id: "menuItem3",
+              widgetId: "",
+              onClick: "",
+              isVisible: true,
+              isDisabled: false,
+              disabledWhenInvalid: false,
+              index: 2,
+            },
+          },
+        },
+      },
+      blueprint: {
+        operations: [
+          {
+            type: BlueprintOperationTypes.MODIFY_PROPS,
+            fn: (widget: WidgetProps & { children?: WidgetProps[] }) => {
+              const groupButtons = klonaFullWithTelemetry(
+                widget.groupButtons,
+                "ButtonGroupWidget.groupButtons",
+              );
+
+              // TODO: Fix this the next time the file is edited
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const dynamicBindingPathList: any[] = get(
+                widget,
+                "dynamicBindingPathList",
+                [],
+              );
+
+              Object.keys(groupButtons).map((groupButtonKey) => {
+                groupButtons[groupButtonKey].buttonColor = get(
+                  widget,
+                  "childStylesheet.button.buttonColor",
+                  "{{appsmith.theme.colors.primaryColor}}",
+                );
+
+                dynamicBindingPathList.push({
+                  key: `groupButtons.${groupButtonKey}.buttonColor`,
+                });
+              });
+
+              const updatePropertyMap = [
+                {
+                  widgetId: widget.widgetId,
+                  propertyName: "dynamicBindingPathList",
+                  propertyValue: dynamicBindingPathList,
+                },
+                {
+                  widgetId: widget.widgetId,
+                  propertyName: "groupButtons",
+                  propertyValue: groupButtons,
+                },
+              ];
+
+              return updatePropertyMap;
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  static getAutoLayoutConfig() {
+    return {
+      autoDimension: {
+        height: true,
+      },
+      widgetSize: [
+        {
+          viewportMinWidth: 0,
+          configuration: (props: ButtonGroupWidgetProps) => {
+            let minWidth = 120;
+            const buttonLength = Object.keys(props.groupButtons).length;
+
+            if (props.orientation === "horizontal") {
+              // 120 is the width of the button, 8 is widget padding, 1 is the gap between buttons
+              minWidth = 120 * buttonLength + 8 + (buttonLength - 1) * 1;
+            }
+
+            return {
+              minWidth: `${minWidth}px`,
+              minHeight: "40px",
+            };
+          },
+        },
+      ],
+      disableResizeHandles: {
+        vertical: true,
+      },
+    };
+  }
+
+  static getAnvilConfig(): AnvilConfig | null {
+    return {
+      isLargeWidget: false,
+      widgetSize: (props: ButtonGroupWidgetProps) => {
+        let minWidth = 120;
+        const buttonLength = Object.keys(props.groupButtons).length;
+
+        if (props.orientation === "horizontal") {
+          // 120 is the width of the button, 8 is widget padding, 1 is the gap between buttons
+          minWidth = 120 * buttonLength + 8 + (buttonLength - 1) * 1;
+        }
+
+        return {
+          maxHeight: {},
+          maxWidth: {},
+          minHeight: { base: "40px" },
+          minWidth: { base: `${minWidth}px` },
+        };
+      },
+    };
+  }
+
   static getAutocompleteDefinitions(): AutocompletionDefinitions {
     return {
       "!doc":
@@ -46,6 +264,8 @@ class ButtonGroupWidget extends BaseWidget<
               titlePropertyName: "label",
               panelIdPropertyName: "id",
               updateHook: (
+                // TODO: Fix this the next time the file is edited
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 props: any,
                 propertyPath: string,
                 propertyValue: string,
@@ -98,6 +318,7 @@ class ButtonGroupWidget extends BaseWidget<
                           `${propertyPath.split(".", 2).join(".")}.buttonType`,
                           "",
                         );
+
                         return buttonType !== "MENU";
                       },
                       dependencies: ["groupButtons"],
@@ -112,6 +333,8 @@ class ButtonGroupWidget extends BaseWidget<
                         titlePropertyName: "label",
                         panelIdPropertyName: "id",
                         updateHook: (
+                          // TODO: Fix this the next time the file is edited
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
                           props: any,
                           propertyPath: string,
                           propertyValue: string,
@@ -301,6 +524,22 @@ class ButtonGroupWidget extends BaseWidget<
                   ],
                 },
                 {
+                  sectionName: "Form settings",
+                  children: [
+                    {
+                      propertyName: "disabledWhenInvalid",
+                      label: "Disable when form is invalid",
+                      helpText:
+                        "Disables this button if the form is invalid, if this button exists directly within a Form widget",
+                      controlType: "SWITCH",
+                      isJSConvertible: true,
+                      isBindProperty: true,
+                      isTriggerProperty: false,
+                      validation: { type: ValidationTypes.BOOLEAN },
+                    },
+                  ],
+                },
+                {
                   sectionName: "Events",
                   hidden: (
                     props: ButtonGroupWidgetProps,
@@ -311,6 +550,7 @@ class ButtonGroupWidget extends BaseWidget<
                       `${propertyPath}.buttonType`,
                       "",
                     );
+
                     return buttonType === "MENU";
                   },
                   children: [
@@ -592,9 +832,11 @@ class ButtonGroupWidget extends BaseWidget<
     };
   }
 
-  getPageView() {
-    const { componentWidth } = this.getComponentDimensions();
-    const minPopoverWidth = MinimumPopupRows * this.props.parentColumnSpace;
+  getWidgetView() {
+    const { componentWidth } = this.props;
+    const minPopoverWidth =
+      (MinimumPopupWidthInPercentage / 100) *
+      (this.props.mainCanvasWidth ?? layoutConfigurations.MOBILE.maxWidth);
 
     return (
       <ButtonGroupComponent
@@ -605,6 +847,7 @@ class ButtonGroupWidget extends BaseWidget<
         buttonVariant={this.props.buttonVariant}
         groupButtons={this.props.groupButtons}
         isDisabled={this.props.isDisabled}
+        isFormValid={this.props.isFormValid}
         minHeight={this.isAutoLayoutMode ? this.props.minHeight : undefined}
         minPopoverWidth={minPopoverWidth}
         orientation={this.props.orientation}
@@ -614,15 +857,12 @@ class ButtonGroupWidget extends BaseWidget<
       />
     );
   }
-
-  static getWidgetType(): string {
-    return "BUTTON_GROUP_WIDGET";
-  }
 }
 
 export interface ButtonGroupWidgetProps extends WidgetProps {
   orientation: string;
   isDisabled: boolean;
+  isFormValid?: boolean;
   borderRadius?: string;
   boxShadow?: string;
   buttonVariant: ButtonVariant;
@@ -634,6 +874,7 @@ export interface ButtonGroupWidgetProps extends WidgetProps {
       index: number;
       isVisible?: boolean;
       isDisabled?: boolean;
+      disabledWhenInvalid?: boolean;
       label?: string;
       buttonType?: string;
       buttonColor?: string;
@@ -649,6 +890,7 @@ export interface ButtonGroupWidgetProps extends WidgetProps {
           index: number;
           isVisible?: boolean;
           isDisabled?: boolean;
+          disabledWhenInvalid?: boolean;
           label?: string;
           backgroundColor?: string;
           textColor?: string;

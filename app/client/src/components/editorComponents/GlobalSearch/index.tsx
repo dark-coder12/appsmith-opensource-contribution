@@ -5,11 +5,11 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useDispatch, useSelector } from "react-redux";
+import { shallowEqual, useDispatch, useSelector } from "react-redux";
 import styled, { ThemeProvider } from "styled-components";
 import { useParams } from "react-router";
 import history, { NavigationMethod } from "utils/history";
-import type { AppState } from "@appsmith/reducers";
+import type { AppState } from "ee/reducers";
 import SearchModal from "./SearchModal";
 import SearchBox from "./SearchBox";
 import SearchResults from "./SearchResults";
@@ -25,7 +25,6 @@ import {
 } from "actions/globalSearchActions";
 import type { SearchCategory, SearchItem, SelectEvent } from "./utils";
 import {
-  algoliaHighlightTag,
   filterCategories,
   getEntityId,
   getFilterCategoryList,
@@ -40,12 +39,15 @@ import {
   SEARCH_ITEM_TYPES,
 } from "./utils";
 import { getActionConfig } from "pages/Editor/Explorer/Actions/helpers";
-import type { ExplorerURLParams } from "@appsmith/pages/Editor/Explorer/helpers";
+import type { ExplorerURLParams } from "ee/pages/Editor/Explorer/helpers";
 import { getLastSelectedWidget } from "selectors/ui";
-import AnalyticsUtil from "utils/AnalyticsUtil";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
 import useRecentEntities from "./useRecentEntities";
 import { noop } from "lodash";
-import { getCurrentPageId } from "selectors/editorSelectors";
+import {
+  getCurrentPageId,
+  getPagePermissions,
+} from "selectors/editorSelectors";
 import { getQueryParams } from "utils/URLUtils";
 import { lightTheme } from "selectors/themeSelectors";
 import {
@@ -59,16 +61,25 @@ import {
   builderURL,
   datasourcesEditorIdURL,
   jsCollectionIdURL,
-} from "RouteBuilder";
-import { getPlugins } from "selectors/entitiesSelector";
+} from "ee/RouteBuilder";
+import { getPlugins } from "ee/selectors/entitiesSelector";
 import {
   DatasourceCreateEntryPoints,
   TEMP_DATASOURCE_ID,
 } from "constants/Datasource";
+import { getHasCreateActionPermission } from "ee/utils/BusinessFeatures/permissionPageHelpers";
+import { FEATURE_FLAG } from "ee/entities/FeatureFlag";
+import { useFeatureFlag } from "utils/hooks/useFeatureFlag";
+import {
+  getBasePageIdToPageIdMap,
+  getPageIdToBasePageIdMap,
+} from "selectors/pageListSelectors";
 
 const StyledContainer = styled.div<{ category: SearchCategory; query: string }>`
   max-height: 530px;
-  transition: height 0.1s ease, width 0.1s ease;
+  transition:
+    height 0.1s ease,
+    width 0.1s ease;
   height: ${(props) =>
     isMenu(props.category) ||
     isActionOperation(props.category) ||
@@ -89,8 +100,6 @@ const StyledContainer = styled.div<{ category: SearchCategory; query: string }>`
     }
   }
 
-  ${algoliaHighlightTag},
-  & .ais-Highlight-highlighted,
   & .search-highlighted {
     background-color: transparent;
     font-style: normal;
@@ -105,15 +114,22 @@ const searchQuerySelector = (state: AppState) => state.ui.globalSearch.query;
 
 const getQueryIndexForSorting = (item: SearchItem, query: string) => {
   const title = getItemTitle(item) || "";
+
   return title.toLowerCase().indexOf(query.toLowerCase());
 };
 
 const getSortedResults = (
   query: string,
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   filteredEntities: Array<any>,
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   recentEntityIndex: (entity: any) => number,
   currentPageId?: string,
 ) => {
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return filteredEntities.sort((a: any, b: any) => {
     const queryIndexA = getQueryIndexForSorting(a, query);
     const queryIndexB = getQueryIndexForSorting(b, query);
@@ -121,15 +137,21 @@ const getSortedResults = (
     if (queryIndexA === queryIndexB) {
       const idxA = recentEntityIndex(a);
       const idxB = recentEntityIndex(b);
+
       if (idxA > -1 && idxB > -1) return idxA - idxB;
+
       if (idxA > -1) return -1;
       else if (idxB > -1) return 1;
+
       const pageA = getItemPage(a);
       const pageB = getItemPage(b);
       const isAInCurrentPage = pageA === currentPageId;
       const isBInCurrentPage = pageB === currentPageId;
+
       if (isAInCurrentPage) return -1;
+
       if (isBInCurrentPage) return 1;
+
       return 0;
     } else {
       if (queryIndexA === -1 && queryIndexB !== -1) return 1;
@@ -140,6 +162,7 @@ const getSortedResults = (
 };
 
 const filterCategoryList = getFilterCategoryList();
+const emptyObj = {};
 
 function GlobalSearch() {
   const currentPageId = useSelector(getCurrentPageId) as string;
@@ -160,15 +183,18 @@ function GlobalSearch() {
     (category: SearchCategory) => {
       dispatch(setGlobalSearchFilterContext({ category: category }));
     },
-    [dispatch, setGlobalSearchFilterContext],
+    [dispatch],
   );
   const params = useParams<ExplorerURLParams>();
+  const pageIdToBasePageIdMap = useSelector(getPageIdToBasePageIdMap);
+  const basePageIdToPageIdMap = useSelector(getBasePageIdToPageIdMap);
 
   const toggleShow = () => {
     if (modalOpen) {
       setQuery("");
       setCategory(filterCategories[SEARCH_CATEGORY_ID.INIT]);
     }
+
     dispatch(toggleShowGlobalSearchModal());
   };
 
@@ -182,6 +208,7 @@ function GlobalSearch() {
 
   useEffect(() => {
     setTimeout(() => document.getElementById("global-search")?.focus());
+
     if (isNavigation(category) && recentEntities.length > 1) {
       setActiveItemIndex(1);
     } else {
@@ -197,29 +224,36 @@ function GlobalSearch() {
     return state.entities.datasources.list.filter(
       (datasource) => datasource.id !== TEMP_DATASOURCE_ID,
     );
-  });
+  }, shallowEqual);
   const datasourcesList = useMemo(() => {
     return reducerDatasources.map((datasource) => ({
       ...datasource,
-      pageId: params?.pageId,
+      pageId: basePageIdToPageIdMap[params?.basePageId],
     }));
-  }, [reducerDatasources]);
+  }, [basePageIdToPageIdMap, params?.basePageId, reducerDatasources]);
 
   const filteredDatasources = useMemo(() => {
     if (!query) return datasourcesList;
+
     return datasourcesList.filter((datasource) =>
       isMatching(datasource.name, query),
     );
-  }, [reducerDatasources, query]);
+  }, [datasourcesList, query]);
   const recentEntities = useRecentEntities();
   const recentEntityIds = recentEntities
     .map((r) => getEntityId(r))
     .filter(Boolean);
-  const recentEntityIndex = (entity: any) => {
-    const id =
-      entity.id || entity.widgetId || entity.config?.id || entity.pageId;
-    return recentEntityIds.indexOf(id);
-  };
+  const recentEntityIndex = useCallback(
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (entity: any) => {
+      const id =
+        entity.id || entity.widgetId || entity.config?.id || entity.pageId;
+
+      return recentEntityIds.indexOf(id);
+    },
+    [recentEntityIds],
+  );
 
   const resetSearchQuery = useSelector(searchQuerySelector);
   const lastSelectedWidgetId = useSelector(getLastSelectedWidget);
@@ -238,25 +272,40 @@ function GlobalSearch() {
     if (query) setActiveItemIndex(0);
   }, [query]);
 
+  const isFeatureEnabled = useFeatureFlag(FEATURE_FLAG.license_gac_enabled);
+  const pagePermissions = useSelector(getPagePermissions);
+
+  const canCreateActions = getHasCreateActionPermission(
+    isFeatureEnabled,
+    pagePermissions,
+  );
+
   const filteredWidgets = useFilteredWidgets(query);
   const filteredActions = useFilteredActions(query);
   const filteredJSCollections = useFilteredJSCollections(query);
   const filteredPages = useFilteredPages(query);
-  const filteredFileOperations = useFilteredFileOperations(query);
+  const filteredFileOperations = useFilteredFileOperations({
+    canCreateActions,
+    query,
+  });
 
   const searchResults = useMemo(() => {
     if (isMenu(category) && !query) {
       const shouldRemoveActionCreation = !filteredFileOperations.length;
+
       return filterCategoryList.filter(
         (cat: SearchCategory) =>
           !isMenu(cat) &&
           (isActionOperation(cat) ? !shouldRemoveActionCreation : true),
       );
     }
+
     if (isActionOperation(category)) {
       return filteredFileOperations;
     }
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let filteredEntities: any = [];
 
     if (isNavigation(category) || isMenu(category)) {
@@ -276,20 +325,25 @@ function GlobalSearch() {
       currentPageId,
     );
   }, [
-    filteredWidgets,
+    category,
+    currentPageId,
     filteredActions,
-    filteredJSCollections,
     filteredDatasources,
+    filteredFileOperations,
+    filteredJSCollections,
+    filteredPages,
+    filteredWidgets,
     query,
-    recentEntities,
+    recentEntityIndex,
   ]);
 
   const activeItem = useMemo(() => {
-    return searchResults[activeItemIndex] || {};
+    return searchResults[activeItemIndex] || emptyObj;
   }, [searchResults, activeItemIndex]);
 
   const getNextActiveItem = (nextIndex: number) => {
     const max = Math.max(searchResults.length - 1, 0);
+
     if (nextIndex < 0) return max;
     else if (nextIndex > max) return 0;
     else return nextIndex;
@@ -298,6 +352,7 @@ function GlobalSearch() {
   const handleUpKey = () => {
     let nextIndex = getNextActiveItem(activeItemIndex - 1);
     const activeItem = searchResults[nextIndex];
+
     if (
       activeItem &&
       (activeItem?.kind === SEARCH_ITEM_TYPES.sectionTitle ||
@@ -305,12 +360,14 @@ function GlobalSearch() {
     ) {
       nextIndex = getNextActiveItem(nextIndex - 1);
     }
+
     setActiveItemIndex(nextIndex);
   };
 
   const handleDownKey = () => {
     let nextIndex = getNextActiveItem(activeItemIndex + 1);
     const activeItem = searchResults[nextIndex];
+
     if (
       activeItem &&
       (activeItem?.kind === SEARCH_ITEM_TYPES.sectionTitle ||
@@ -318,6 +375,7 @@ function GlobalSearch() {
     ) {
       nextIndex = getNextActiveItem(nextIndex + 1);
     }
+
     setActiveItemIndex(nextIndex);
   };
 
@@ -328,7 +386,7 @@ function GlobalSearch() {
     navigateToWidget(
       activeItem.widgetId,
       activeItem.type,
-      activeItem.pageId,
+      pageIdToBasePageIdMap[activeItem.pageId],
       NavigationMethod.Omnibar,
       lastSelectedWidgetId === activeItem.widgetId,
       false,
@@ -339,21 +397,30 @@ function GlobalSearch() {
 
   const handleActionClick = (item: SearchItem) => {
     const { config } = item;
-    const { id, pageId, pluginId, pluginType } = config;
+    const { baseId: baseActionId, pageId, pluginId, pluginType } = config;
     const actionConfig = getActionConfig(pluginType);
     const plugin = plugins.find((plugin) => plugin?.id === pluginId);
-    const url = actionConfig?.getURL(pageId, id, pluginType, plugin);
+    const basePageId = pageIdToBasePageIdMap[pageId];
+    const url = actionConfig?.getURL(
+      basePageId,
+      baseActionId,
+      pluginType,
+      plugin,
+    );
+
     toggleShow();
     url && history.push(url, { invokedBy: NavigationMethod.Omnibar });
   };
 
   const handleJSCollectionClick = (item: SearchItem) => {
     const { config } = item;
-    const { id, pageId } = config;
+    const { baseId: baseCollectionId, pageId } = config;
+    const basePageId = pageIdToBasePageIdMap[pageId];
+
     history.push(
       jsCollectionIdURL({
-        pageId,
-        collectionId: id,
+        basePageId,
+        baseCollectionId,
       }),
       { invokedBy: NavigationMethod.Omnibar },
     );
@@ -362,9 +429,11 @@ function GlobalSearch() {
 
   const handleDatasourceClick = (item: SearchItem) => {
     toggleShow();
+    const basePageId = pageIdToBasePageIdMap[item.pageId];
+
     history.push(
       datasourcesEditorIdURL({
-        pageId: item.pageId,
+        basePageId: basePageId,
         datasourceId: item.id,
         params: getQueryParams(),
       }),
@@ -376,27 +445,41 @@ function GlobalSearch() {
     toggleShow();
     history.push(
       builderURL({
-        pageId: item.pageId,
+        basePageId: item.basePageId,
       }),
       { invokedBy: NavigationMethod.Omnibar },
     );
   };
 
   const itemClickHandlerByType = {
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.widget]: (e: SelectEvent, item: any) =>
       handleWidgetClick(item),
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.action]: (e: SelectEvent, item: any) =>
       handleActionClick(item),
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.datasource]: (e: SelectEvent, item: any) =>
       handleDatasourceClick(item),
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.page]: (e: SelectEvent, item: any) =>
       handlePageClick(item),
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.jsAction]: (e: SelectEvent, item: any) =>
       handleJSCollectionClick(item),
     [SEARCH_ITEM_TYPES.sectionTitle]: noop,
     [SEARCH_ITEM_TYPES.placeholder]: noop,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.category]: (e: SelectEvent, item: any) =>
       setCategory(item),
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [SEARCH_ITEM_TYPES.actionOperation]: (e: SelectEvent, item: any) => {
       if (item.action)
         dispatch(
@@ -404,6 +487,7 @@ function GlobalSearch() {
         );
       else if (item.redirect)
         item.redirect(currentPageId, DatasourceCreateEntryPoints.OMNIBAR);
+
       dispatch(toggleShowGlobalSearchModal());
     },
   };
@@ -442,8 +526,8 @@ function GlobalSearch() {
   };
 
   const showDescription = useMemo(() => {
-    return isMenu(category) && query;
-  }, [category, query]);
+    return false;
+  }, []);
 
   const activeItemType = useMemo(() => {
     return activeItem ? getItemType(activeItem) : undefined;

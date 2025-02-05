@@ -5,5 +5,9 @@ public enum PluginType {
     API,
     JS,
     SAAS,
-    REMOTE
+    REMOTE,
+    AI,
+    INTERNAL,
+
+    // Add EE Plugin Types below this line, to avoid conflicts.
 }

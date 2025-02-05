@@ -16,6 +16,7 @@ import com.external.plugins.exceptions.RedisErrorMessages;
 import com.external.plugins.exceptions.RedisPluginError;
 import com.external.utils.RedisURIUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.ObjectUtils;
 import org.pf4j.Extension;
 import org.pf4j.PluginWrapper;
 import org.pf4j.util.StringUtils;
@@ -44,6 +45,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.appsmith.external.constants.ActionConstants.ACTION_CONFIGURATION_BODY;
+import static org.apache.commons.lang3.StringUtils.isBlank;
 
 @Slf4j
 public class RedisPlugin extends BasePlugin {
@@ -66,6 +68,7 @@ public class RedisPlugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": execute() called for Redis plugin.");
             String query = actionConfiguration.getBody();
             List<RequestParamDTO> requestParams =
                     List.of(new RequestParamDTO(ACTION_CONFIGURATION_BODY, query, null, null, null));
@@ -117,7 +120,9 @@ public class RedisPlugin extends BasePlugin {
                                 objectMapper.valueToTree(removeQuotes(processCommandOutput(commandOutput))));
                         actionExecutionResult.setIsExecutionSuccess(true);
 
-                        log.debug("In the RedisPlugin, got action execution result");
+                        log.debug(
+                                Thread.currentThread().getName() + ": In the RedisPlugin, got action execution result");
+
                         return Mono.just(actionExecutionResult);
                     })
                     .flatMap(obj -> obj)
@@ -250,12 +255,14 @@ public class RedisPlugin extends BasePlugin {
 
         @Override
         public Mono<JedisPool> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for Redis plugin.");
             return Mono.fromCallable(() -> {
                         final JedisPoolConfig poolConfig = buildPoolConfig();
                         int timeout =
                                 (int) Duration.ofSeconds(CONNECTION_TIMEOUT).toMillis();
                         URI uri = RedisURIUtils.getURI(datasourceConfiguration);
                         JedisPool jedisPool = new JedisPool(poolConfig, uri, timeout);
+                        log.debug(Thread.currentThread().getName() + ": Created Jedis pool.");
                         return jedisPool;
                     })
                     .subscribeOn(scheduler);
@@ -263,6 +270,7 @@ public class RedisPlugin extends BasePlugin {
 
         @Override
         public void datasourceDestroy(JedisPool jedisPool) {
+            log.debug(Thread.currentThread().getName() + ": datasourceDestroy() called for Redis plugin.");
             // Schedule on elastic thread pool and subscribe immediately.
             Mono.fromSupplier(() -> {
                         try {
@@ -270,7 +278,7 @@ public class RedisPlugin extends BasePlugin {
                                 jedisPool.destroy();
                             }
                         } catch (JedisException e) {
-                            log.debug("Error destroying Jedis pool.");
+                            log.error("Error destroying Jedis pool.");
                         }
 
                         return Mono.empty();
@@ -281,6 +289,7 @@ public class RedisPlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for Redis plugin.");
             Set<String> invalids = new HashSet<>();
 
             if (isEndpointMissing(datasourceConfiguration.getEndpoints())) {
@@ -293,6 +302,25 @@ public class RedisPlugin extends BasePlugin {
             }
 
             return invalids;
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName()
+                    + ": getEndpointIdentifierForRateLimit() called for Redis plugin.");
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                Long port = endpoints.get(0).getPort();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_" + ObjectUtils.defaultIfNull(port, RedisURIUtils.DEFAULT_PORT);
+                }
+            }
+            return Mono.just(identifier);
         }
 
         private boolean isAuthenticationMissing(DBAuth auth) {
@@ -345,6 +373,7 @@ public class RedisPlugin extends BasePlugin {
 
         @Override
         public Mono<DatasourceTestResult> testDatasource(JedisPool connectionPool) {
+            log.debug(Thread.currentThread().getName() + ": testDatasource() called for Redis plugin.");
 
             return Mono.just(connectionPool)
                     .flatMap(c -> verifyPing(connectionPool))

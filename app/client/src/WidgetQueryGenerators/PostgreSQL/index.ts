@@ -1,20 +1,22 @@
 import { BaseQueryGenerator } from "../BaseQueryGenerator";
 import { formatDialect, postgresql } from "sql-formatter";
-import { QUERY_TYPE } from "../types";
 import type {
+  ActionConfigurationSQL,
   WidgetQueryGenerationConfig,
   WidgetQueryGenerationFormConfig,
-  ActionConfigurationSQL,
 } from "../types";
+import { QUERY_TYPE } from "../types";
 import { removeSpecialChars } from "utils/helpers";
 import { without } from "lodash";
 import { DatasourceConnectionMode } from "entities/Datasource";
+
 export default abstract class PostgreSQL extends BaseQueryGenerator {
   private static buildSelect(
     widgetConfig: WidgetQueryGenerationConfig,
     formConfig: WidgetQueryGenerationFormConfig,
   ) {
     const { select } = widgetConfig;
+
     //if no table name do not build query
     if (!select || !formConfig.tableName) {
       return;
@@ -76,6 +78,7 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
       .reduce(
         (acc, curr) => {
           const { params, template } = curr;
+
           return {
             template: acc.template + " " + template,
             params: { ...acc.params, ...params },
@@ -108,6 +111,7 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
     formConfig: WidgetQueryGenerationFormConfig,
   ) {
     const { update } = widgetConfig;
+
     //if no table name do not build query
     if (!update || !update.where || !formConfig.tableName) {
       return;
@@ -115,7 +119,10 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
 
     const { value, where } = update;
 
-    const columns = without(formConfig.columns, formConfig.primaryColumn);
+    const columns = without(
+      formConfig.columns.map((d) => d.name),
+      formConfig.primaryColumn,
+    );
 
     return {
       type: QUERY_TYPE.UPDATE,
@@ -124,7 +131,7 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
         body: `UPDATE ${formConfig.tableName} SET ${columns
           .map((column) => `"${column}"= '{{${value}.${column}}}'`)
           .join(", ")} WHERE "${formConfig.primaryColumn}"= {{${where}.${
-          formConfig.primaryColumn
+          formConfig.dataIdentifier
         }}};`,
       },
       dynamicBindingPathList: [
@@ -140,12 +147,16 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
     formConfig: WidgetQueryGenerationFormConfig,
   ) {
     const { create } = widgetConfig;
+
     //if no table name do not build query
     if (!create || !create.value || !formConfig.tableName) {
       return;
     }
 
-    const columns = without(formConfig.columns, formConfig.primaryColumn);
+    const columns = without(
+      formConfig.columns.map((d) => d.name),
+      formConfig.primaryColumn,
+    );
 
     return {
       type: QUERY_TYPE.CREATE,
@@ -170,6 +181,7 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
     formConfig: WidgetQueryGenerationFormConfig,
   ) {
     const { select, totalRecord } = widgetConfig;
+
     //if no table name do not build query
     if (!totalRecord) {
       return;
@@ -199,13 +211,14 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
     pluginInitalValues: { actionConfiguration: ActionConfigurationSQL },
   ) {
     const allBuildConfigs = [];
+
     if (widgetConfig.select) {
       allBuildConfigs.push(this.buildSelect(widgetConfig, formConfig));
     }
 
     if (
       widgetConfig.update &&
-      formConfig.primaryColumn &&
+      (formConfig.primaryColumn || formConfig?.otherFields?.dataIdentifier) &&
       formConfig.connectionMode === DatasourceConnectionMode.READ_WRITE
     ) {
       allBuildConfigs.push(this.buildUpdate(widgetConfig, formConfig));
@@ -213,7 +226,7 @@ export default abstract class PostgreSQL extends BaseQueryGenerator {
 
     if (
       widgetConfig.create &&
-      formConfig.primaryColumn &&
+      (formConfig.primaryColumn || formConfig?.otherFields?.dataIdentifier) &&
       formConfig.connectionMode === DatasourceConnectionMode.READ_WRITE
     ) {
       allBuildConfigs.push(this.buildInsert(widgetConfig, formConfig));

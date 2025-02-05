@@ -3,33 +3,46 @@ import log from "loglevel";
 import memoizeOne from "memoize-one";
 
 import _, {
-  isNumber,
-  isString,
-  isNil,
-  xor,
-  without,
-  isArray,
-  xorWith,
-  isEmpty,
-  union,
-  isObject,
-  pickBy,
-  orderBy,
+  cloneDeep,
   filter,
+  isArray,
+  isEmpty,
+  isNil,
+  isNumber,
+  isObject,
+  isString,
   merge,
+  orderBy,
+  pickBy,
+  union,
+  without,
+  xor,
+  xorWith,
 } from "lodash";
 
 import type { WidgetProps, WidgetState } from "widgets/BaseWidget";
 import BaseWidget from "widgets/BaseWidget";
-import type { WidgetType } from "constants/WidgetConstants";
-import { RenderModes, WIDGET_PADDING } from "constants/WidgetConstants";
+import {
+  RenderModes,
+  WIDGET_PADDING,
+  WIDGET_TAGS,
+} from "constants/WidgetConstants";
 import { EventType } from "constants/AppsmithActionConstants/ActionConstants";
 import Skeleton from "components/utils/Skeleton";
 import { noop, retryPromise } from "utils/AppsmithUtils";
-import { SORT_ORDER } from "../component/Constants";
-import { StickyType } from "../component/Constants";
-import type { ReactTableFilter } from "../component/Constants";
-import { AddNewRowActions, DEFAULT_FILTER } from "../component/Constants";
+import type {
+  ColumnProperties,
+  ReactTableColumnProps,
+  ReactTableFilter,
+} from "../component/Constants";
+import {
+  AddNewRowActions,
+  CompactModeTypes,
+  DEFAULT_FILTER,
+  SORT_ORDER,
+  SortOrderTypes,
+  StickyType,
+} from "../component/Constants";
 import type {
   EditableCell,
   OnColumnEventArgs,
@@ -38,42 +51,40 @@ import type {
 } from "../constants";
 import {
   ActionColumnTypes,
+  ALLOW_TABLE_WIDGET_SERVER_SIDE_FILTERING,
   ColumnTypes,
-  defaultEditableCell,
   DEFAULT_BUTTON_LABEL,
   DEFAULT_COLUMN_WIDTH,
   DEFAULT_MENU_BUTTON_LABEL,
   DEFAULT_MENU_VARIANT,
+  defaultEditableCell,
   EditableCellActions,
+  HTML_COLUMN_TYPE_ENABLED,
   InlineEditingSaveOptions,
   ORIGINAL_INDEX_KEY,
-  TABLE_COLUMN_ORDER_KEY,
   PaginationDirection,
+  TABLE_COLUMN_ORDER_KEY,
 } from "../constants";
 import derivedProperties from "./parseDerivedProperties";
 import {
+  createEditActionColumn,
+  deleteLocalTableColumnOrderByWidgetId,
+  generateLocalNewColumnOrderFromStickyValue,
+  generateNewColumnOrderFromStickyValue,
+  getAllStickyColumnsCount,
   getAllTableColumnKeys,
+  getBooleanPropertyValue,
+  getCellProperties,
+  getColumnOrderByWidgetIdFromLS,
+  getColumnType,
   getDefaultColumnProperties,
   getDerivedColumns,
-  getTableStyles,
   getSelectRowIndex,
   getSelectRowIndices,
-  getCellProperties,
+  getTableStyles,
   isColumnTypeEditable,
-  getColumnType,
-  getBooleanPropertyValue,
-  deleteLocalTableColumnOrderByWidgetId,
-  getColumnOrderByWidgetIdFromLS,
-  generateLocalNewColumnOrderFromStickyValue,
   updateAndSyncTableLocalColumnOrders,
-  getAllStickyColumnsCount,
-  createEditActionColumn,
 } from "./utilities";
-import type {
-  ColumnProperties,
-  ReactTableColumnProps,
-} from "../component/Constants";
-import { CompactModeTypes, SortOrderTypes } from "../component/Constants";
 import contentConfig from "./propertyConfig/contentConfig";
 import styleConfig from "./propertyConfig/styleConfig";
 import type { BatchPropertyUpdatePayload } from "actions/controlActions";
@@ -82,8 +93,8 @@ import { IconNames } from "@blueprintjs/icons";
 import { Colors } from "constants/Colors";
 import equal from "fast-deep-equal/es6";
 import {
-  sanitizeKey,
   DefaultAutocompleteDefinitions,
+  sanitizeKey,
 } from "widgets/WidgetUtils";
 import PlainTextCell from "../component/cellComponents/PlainTextCell";
 import { ButtonCell } from "../component/cellComponents/ButtonCell";
@@ -92,13 +103,11 @@ import { ImageCell } from "../component/cellComponents/ImageCell";
 import { VideoCell } from "../component/cellComponents/VideoCell";
 import { IconButtonCell } from "../component/cellComponents/IconButtonCell";
 import { EditActionCell } from "../component/cellComponents/EditActionsCell";
-import { klona as clone } from "klona";
 import { CheckboxCell } from "../component/cellComponents/CheckboxCell";
 import { SwitchCell } from "../component/cellComponents/SwitchCell";
 import { SelectCell } from "../component/cellComponents/SelectCell";
 import { CellWrapper } from "../component/TableStyledWrappers";
 import localStorage from "utils/localStorage";
-import { generateNewColumnOrderFromStickyValue } from "./utilities";
 import type { SetterConfig, Stylesheet } from "entities/AppTheming";
 import { DateCell } from "../component/cellComponents/DateCell";
 import type { MenuItem } from "widgets/MenuButtonWidget/constants";
@@ -111,19 +120,35 @@ import type {
   transformDataWithEditableCell,
 } from "./reactTableUtils/transformDataPureFn";
 import { getMemoiseTransformDataWithEditableCell } from "./reactTableUtils/transformDataPureFn";
-import type { ExtraDef } from "utils/autocomplete/dataTreeTypeDefCreator";
-import { generateTypeDef } from "utils/autocomplete/dataTreeTypeDefCreator";
-import type { AutocompletionDefinitions } from "widgets/constants";
+import type { ExtraDef } from "utils/autocomplete/defCreatorUtils";
+import { generateTypeDef } from "utils/autocomplete/defCreatorUtils";
+import type {
+  AnvilConfig,
+  AutocompletionDefinitions,
+  PropertyUpdates,
+  SnipingModeProperty,
+} from "WidgetProvider/constants";
 import type {
   WidgetQueryConfig,
   WidgetQueryGenerationFormConfig,
 } from "WidgetQueryGenerators/types";
 import type { DynamicPath } from "utils/DynamicBindingUtils";
+import { FILL_WIDGET_MIN_WIDTH } from "constants/minWidthConstants";
+import {
+  FlexVerticalAlignment,
+  ResponsiveBehavior,
+} from "layoutSystems/common/utils/constants";
+import IconSVG from "../icon.svg";
+import ThumbnailSVG from "../thumbnail.svg";
+import { klonaRegularWithTelemetry } from "utils/helpers";
+import HTMLCell from "../component/cellComponents/HTMLCell";
 
-const ReactTableComponent = lazy(() =>
-  retryPromise(() => import("../component")),
+const ReactTableComponent = lazy(async () =>
+  retryPromise(async () => import("../component")),
 );
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const emptyArr: any = [];
 
 type addNewRowToTable = (
@@ -137,123 +162,238 @@ const getMemoisedAddNewRow = (): addNewRowToTable =>
     if (isAddRowInProgress) {
       return [newRowContent, ...tableData];
     }
+
     return tableData;
   });
 
 class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
   inlineEditTimer: number | null = null;
   memoisedAddNewRow: addNewRowToTable;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   memoiseGetColumnsWithLocalStorage: (localStorage: any) => getColumns;
   memoiseTransformDataWithEditableCell: transformDataWithEditableCell;
 
-  static getQueryGenerationConfig(widget: WidgetProps) {
+  static type = "TABLE_WIDGET_V2";
+
+  static getConfig() {
     return {
-      select: {
-        limit: `${widget.widgetName}.pageSize`,
-        where: `${widget.widgetName}.searchText`,
-        offset: `${widget.widgetName}.pageOffset`,
-        orderBy: `${widget.widgetName}.sortOrder.column`,
-        sortOrder: `${widget.widgetName}.sortOrder.order !== "desc"`,
-      },
-      create: {
-        value: `(${widget.widgetName}.newRow || {})`,
-      },
-      update: {
-        value: `${widget.widgetName}.updatedRow`,
-        where: `${widget.widgetName}.updatedRow`,
-      },
-      totalRecord: true,
+      name: "Table",
+      iconSVG: IconSVG,
+      thumbnailSVG: ThumbnailSVG,
+      tags: [WIDGET_TAGS.SUGGESTED_WIDGETS, WIDGET_TAGS.DISPLAY],
+      needsMeta: true,
+      needsHeightForContent: true,
     };
   }
 
-  static getPropertyUpdatesForQueryBinding(
-    queryConfig: WidgetQueryConfig,
-    widget: TableWidgetProps,
-    formConfig: WidgetQueryGenerationFormConfig,
-  ) {
-    let modify = {};
-    const dynamicPropertyPathList: DynamicPath[] = [];
-
-    if (queryConfig.select) {
-      modify = merge(modify, {
-        tableData: queryConfig.select.data,
-        onPageChange: queryConfig.select.run,
-        serverSidePaginationEnabled: true,
-        onSearchTextChanged: formConfig.searchableColumn
-          ? queryConfig.select.run
-          : undefined,
-        onSort: queryConfig.select.run,
-        enableClientSideSearch: !formConfig.searchableColumn,
-        primaryColumnId: formConfig.primaryColumn,
-        isVisibleDownload: false,
-      });
-    }
-
-    if (queryConfig.create) {
-      modify = merge(modify, {
-        onAddNewRowSave: queryConfig.create.run,
-        allowAddNewRow: true,
-        ...Object.keys(widget.primaryColumns).reduce(
-          (prev: Record<string, boolean>, curr) => {
-            if (formConfig.primaryColumn !== curr) {
-              prev[`primaryColumns.${curr}.isEditable`] = true;
-              prev[`primaryColumns.${curr}.isCellEditable`] = true;
-            }
-
-            prev[`showInlineEditingOptionDropdown`] = true;
-
-            return prev;
-          },
-          {},
-        ),
-      });
-    }
-
-    if (queryConfig.update) {
-      let editAction = {};
-
-      if (
-        !Object.values(widget.primaryColumns).some(
-          (column) => column.columnType === ColumnTypes.EDIT_ACTIONS,
-        )
-      ) {
-        editAction = Object.values(createEditActionColumn(widget)).reduce(
-          (
-            prev: Record<string, unknown>,
-            curr: {
-              propertyPath: string;
-              propertyValue: unknown;
-              isDynamicPropertyPath?: boolean;
-            },
-          ) => {
-            prev[curr.propertyPath] = curr.propertyValue;
-
-            if (curr.isDynamicPropertyPath) {
-              dynamicPropertyPathList.push({ key: curr.propertyPath });
-            }
-
-            return prev;
-          },
-          {},
-        );
-      }
-
-      modify = merge(modify, {
-        ...editAction,
-        [`primaryColumns.EditActions1.onSave`]: queryConfig.update.run,
-      });
-    }
-
-    if (queryConfig.total_record) {
-      modify = merge(modify, {
-        totalRecordsCount: queryConfig.total_record.data,
-      });
-    }
-
+  static getDefaults() {
     return {
-      modify,
-      dynamicUpdates: {
-        dynamicPropertyPathList,
+      flexVerticalAlignment: FlexVerticalAlignment.Top,
+      responsiveBehavior: ResponsiveBehavior.Fill,
+      minWidth: FILL_WIDGET_MIN_WIDTH,
+      rows: 28,
+      canFreezeColumn: true,
+      columnUpdatedAt: Date.now(),
+      columns: 34,
+      animateLoading: true,
+      defaultSelectedRowIndex: 0,
+      defaultSelectedRowIndices: [0],
+      label: "Data",
+      widgetName: "Table",
+      searchKey: "",
+      textSize: "0.875rem",
+      horizontalAlignment: "LEFT",
+      verticalAlignment: "CENTER",
+      totalRecordsCount: 0,
+      defaultPageSize: 0,
+      dynamicPropertyPathList: [],
+      borderColor: Colors.GREY_5,
+      borderWidth: "1",
+      dynamicBindingPathList: [],
+      primaryColumns: {},
+      tableData: "",
+      columnWidthMap: {},
+      columnOrder: [],
+      enableClientSideSearch: true,
+      isVisibleSearch: true,
+      isVisibleFilters: false,
+      isVisibleDownload: true,
+      isVisiblePagination: true,
+      isSortable: true,
+      delimiter: ",",
+      version: 2,
+      inlineEditingSaveOption: InlineEditingSaveOptions.ROW_LEVEL,
+      enableServerSideFiltering: TableWidgetV2.getFeatureFlag(
+        ALLOW_TABLE_WIDGET_SERVER_SIDE_FILTERING,
+      )
+        ? false
+        : undefined,
+      customIsLoading: false,
+      customIsLoadingValue: "",
+    };
+  }
+
+  static getMethods() {
+    return {
+      getQueryGenerationConfig: (widget: WidgetProps) => {
+        return {
+          select: {
+            limit: `${widget.widgetName}.pageSize`,
+            where: `${widget.widgetName}.searchText`,
+            offset: `${widget.widgetName}.pageOffset`,
+            orderBy: `${widget.widgetName}.sortOrder.column`,
+            sortOrder: `${widget.widgetName}.sortOrder.order !== "desc"`,
+          },
+          create: {
+            value: `(${widget.widgetName}.newRow || {})`,
+          },
+          update: {
+            value: `${widget.widgetName}.updatedRow`,
+            where: `${widget.widgetName}.updatedRow`,
+          },
+          totalRecord: true,
+        };
+      },
+      getPropertyUpdatesForQueryBinding: (
+        queryConfig: WidgetQueryConfig,
+        _widget: WidgetProps,
+        formConfig: WidgetQueryGenerationFormConfig,
+      ) => {
+        const widget = _widget as TableWidgetProps;
+
+        let modify = {};
+        const dynamicPropertyPathList: DynamicPath[] = [];
+
+        if (queryConfig.select) {
+          modify = merge(modify, {
+            tableData: queryConfig.select.data,
+            onPageChange: queryConfig.select.run,
+            serverSidePaginationEnabled: true,
+            onSearchTextChanged: formConfig.searchableColumn
+              ? queryConfig.select.run
+              : undefined,
+            onSort: queryConfig.select.run,
+            enableClientSideSearch: !formConfig.searchableColumn,
+            primaryColumnId: formConfig.primaryColumn,
+            isVisibleDownload: false,
+          });
+
+          dynamicPropertyPathList.push({ key: "tableData" });
+        }
+
+        if (queryConfig.create) {
+          modify = merge(modify, {
+            onAddNewRowSave: queryConfig.create.run,
+            allowAddNewRow: true,
+            ...Object.keys(widget.primaryColumns).reduce(
+              (prev: Record<string, boolean>, curr) => {
+                if (formConfig.primaryColumn !== curr) {
+                  prev[`primaryColumns.${curr}.isEditable`] = true;
+                  prev[`primaryColumns.${curr}.isCellEditable`] = true;
+                }
+
+                prev[`showInlineEditingOptionDropdown`] = true;
+
+                return prev;
+              },
+              {},
+            ),
+          });
+        }
+
+        if (queryConfig.update) {
+          let editAction = {};
+
+          if (
+            !Object.values(widget.primaryColumns).some(
+              (column) => column.columnType === ColumnTypes.EDIT_ACTIONS,
+            )
+          ) {
+            editAction = Object.values(createEditActionColumn(widget)).reduce(
+              (
+                prev: Record<string, unknown>,
+                curr: {
+                  propertyPath: string;
+                  propertyValue: unknown;
+                  isDynamicPropertyPath?: boolean;
+                },
+              ) => {
+                prev[curr.propertyPath] = curr.propertyValue;
+
+                if (curr.isDynamicPropertyPath) {
+                  dynamicPropertyPathList.push({ key: curr.propertyPath });
+                }
+
+                return prev;
+              },
+              {},
+            );
+          }
+
+          modify = merge(modify, {
+            ...editAction,
+            [`primaryColumns.EditActions1.onSave`]: queryConfig.update.run,
+          });
+        }
+
+        if (queryConfig.total_record) {
+          modify = merge(modify, {
+            totalRecordsCount: queryConfig.total_record.data,
+          });
+        }
+
+        return {
+          modify,
+          dynamicUpdates: {
+            dynamicPropertyPathList,
+          },
+        };
+      },
+      getSnipingModeUpdates: (
+        propValueMap: SnipingModeProperty,
+      ): PropertyUpdates[] => {
+        return [
+          {
+            propertyPath: "tableData",
+            propertyValue: propValueMap.data,
+            isDynamicPropertyPath: !!propValueMap.isDynamicPropertyPath,
+          },
+        ];
+      },
+      getOneClickBindingConnectableWidgetConfig: (widget: WidgetProps) => {
+        return {
+          widgetBindPath: `${widget.widgetName}.selectedRow`,
+          message: `Make sure ${widget.widgetName} is bound to the same data source`,
+        };
+      },
+    };
+  }
+
+  static getAutoLayoutConfig() {
+    return {
+      widgetSize: [
+        {
+          viewportMinWidth: 0,
+          configuration: () => {
+            return {
+              minWidth: "280px",
+              minHeight: "300px",
+            };
+          },
+        },
+      ],
+    };
+  }
+
+  static getAnvilConfig(): AnvilConfig | null {
+    return {
+      isLargeWidget: false,
+      widgetSize: {
+        maxHeight: {},
+        maxWidth: {},
+        minHeight: { base: "300px" },
+        minWidth: { base: "280px" },
       },
     };
   }
@@ -276,6 +416,8 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
       getMemoiseTransformDataWithEditableCell();
   }
 
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static getMetaPropertiesMap(): Record<string, any> {
     return {
       pageNo: 1,
@@ -303,7 +445,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
 
   static getAutocompleteDefinitions(): AutocompletionDefinitions {
     return (widget: TableWidgetProps, extraDefsToDefine?: ExtraDef) => {
-      const config = {
+      const config: AutocompletionDefinitions = {
         "!doc":
           "The Table is the hero widget of Appsmith. You can display data from an API in a table, trigger an action when a user selects a row and even work with large paginated data sets",
         "!url": "https://docs.appsmith.com/widget-reference/table",
@@ -333,6 +475,10 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         previousPageVisited: generateTypeDef(widget.previousPageVisited),
         nextPageVisited: generateTypeDef(widget.nextPageButtonClicked),
       };
+
+      if (this.getFeatureFlag(ALLOW_TABLE_WIDGET_SERVER_SIDE_FILTERING)) {
+        config["filters"] = generateTypeDef(widget.filters);
+      }
 
       return config;
     };
@@ -420,7 +566,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         },
         setData: {
           path: "tableData",
-          type: "object",
+          type: "array",
         },
       },
     };
@@ -431,18 +577,25 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
    * based on columnType
    */
   getTableColumns = () => {
-    const { columnWidthMap, orderedTableColumns, renderMode, widgetId } =
-      this.props;
+    const {
+      columnWidthMap,
+      isPreviewMode,
+      orderedTableColumns,
+      renderMode,
+      widgetId,
+    } = this.props;
     const { componentWidth } = this.getPaddingAdjustedDimensions();
     const widgetLocalStorageState = getColumnOrderByWidgetIdFromLS(widgetId);
     const memoisdGetColumnsWithLocalStorage =
       this.memoiseGetColumnsWithLocalStorage(widgetLocalStorageState);
+
     return memoisdGetColumnsWithLocalStorage(
       this.renderCell,
       columnWidthMap,
       orderedTableColumns,
       componentWidth,
       renderMode,
+      isPreviewMode,
     );
   };
 
@@ -483,7 +636,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
   createTablePrimaryColumns = ():
     | Record<string, ColumnProperties>
     | undefined => {
-    const { tableData = [], primaryColumns = {} } = this.props;
+    const { primaryColumns = {}, tableData = [] } = this.props;
 
     if (!_.isArray(tableData) || tableData.length === 0) {
       return;
@@ -591,6 +744,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         ) {
           // Maintain original columnOrder and keep new columns at the end
           let newColumnOrder = _.intersection(columnOrder, newColumnIds);
+
           newColumnOrder = _.union(newColumnOrder, newColumnIds);
 
           const compareColumns = (a: string, b: string) => {
@@ -628,6 +782,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             const rightOrder = newColumnOrder.filter(
               (col: string) => tableColumns[col].sticky === StickyType.RIGHT,
             );
+
             this.persistColumnOrder(newColumnOrder, leftOrder, rightOrder);
           }
         }
@@ -730,6 +885,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         const propertiesToUpdate = {
           modify: propertiesToAdd,
         };
+
         super.batchUpdateWidgetProperty(propertiesToUpdate);
       }
     } else {
@@ -757,6 +913,36 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
     if (canFreezeColumn && renderMode === RenderModes.PAGE) {
       //dont neet to batch this since single action
       this.hydrateStickyColumns();
+    }
+
+    /**
+     * Why we are doing this?
+     * This is a safety net! Consider this scenario:
+     * 1. HTML column type is enabled.
+     * 2. User creates a table with HTML columns.
+     * 3. HTML column type is disabled. (For any reason)
+     *
+     * In this scenario, we don't want incomplete experience for the user.
+     * Without this safety net, the property pane will not show the HTML as type and the `ColumnType` will be lost(and empty), which is confusing for the user.
+     * With this safety net, we will update the column type to TEXT.
+     * @rahulbarwal Remove this once we remove the feature flag
+     */
+    if (!TableWidgetV2.getFeatureFlag(HTML_COLUMN_TYPE_ENABLED)) {
+      const updatedPrimaryColumns = cloneDeep(this.props.primaryColumns);
+      let hasHTMLColumns = false;
+
+      Object.values(updatedPrimaryColumns).forEach(
+        (column: ColumnProperties) => {
+          if (column.columnType === ColumnTypes.HTML) {
+            column.columnType = ColumnTypes.TEXT;
+            hasHTMLColumns = true;
+          }
+        },
+      );
+
+      if (hasHTMLColumns) {
+        this.updateWidgetProperty("primaryColumns", updatedPrimaryColumns);
+      }
     }
   }
 
@@ -798,12 +984,10 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
 
     //check if necessary we are batching now updates
     // Check if tableData is modifed
-    const isTableDataModified = !equal(
-      this.props.tableData,
-      prevProps.tableData,
-    );
+    const isTableDataModified = this.props.tableData !== prevProps.tableData;
 
     const { commitBatchMetaUpdates, pushBatchMetaUpdates } = this.props;
+
     // If the user has changed the tableData OR
     // The binding has returned a new value
     if (isTableDataModified) {
@@ -828,7 +1012,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           this.updateColumnProperties(newTableColumns, isTableDataModified);
         }
 
-        pushBatchMetaUpdates("filters", [DEFAULT_FILTER]);
+        pushBatchMetaUpdates("filters", []);
       }
     }
 
@@ -924,7 +1108,10 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
 
         pushBatchMetaUpdates("selectedRowIndex", -1);
       } else {
-        if (!isNil(defaultSelectedRowIndex) && defaultSelectedRowIndex > -1) {
+        if (
+          !isNil(defaultSelectedRowIndex) &&
+          parseInt(defaultSelectedRowIndex?.toString(), 10) > -1
+        ) {
           pushBatchMetaUpdates("selectedRowIndex", defaultSelectedRowIndex);
         }
 
@@ -977,6 +1164,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         selectedRowIndices,
         primaryColumnId,
       );
+
       pushBatchMetaUpdates("selectedRowIndices", indices);
     } else {
       const index = getSelectRowIndex(
@@ -986,6 +1174,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         selectedRowIndex,
         primaryColumnId,
       );
+
       pushBatchMetaUpdates("selectedRowIndex", index);
     }
   };
@@ -1011,17 +1200,33 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
   };
 
   updateFilters = (filters: ReactTableFilter[]) => {
-    const { commitBatchMetaUpdates, pushBatchMetaUpdates } = this.props;
+    const {
+      commitBatchMetaUpdates,
+      enableServerSideFiltering,
+      onTableFilterUpdate,
+      pushBatchMetaUpdates,
+    } = this.props;
 
     this.pushResetSelectedRowIndexUpdates();
 
-    pushBatchMetaUpdates("filters", filters);
+    if (enableServerSideFiltering) {
+      pushBatchMetaUpdates("filters", filters, {
+        triggerPropertyName: "onTableFilterUpdate",
+        dynamicString: onTableFilterUpdate,
+        event: {
+          type: EventType.ON_FILTER_UPDATE,
+        },
+      });
+    } else {
+      pushBatchMetaUpdates("filters", filters);
+    }
 
     // Reset Page only when a filter is added
     if (!isEmpty(xorWith(filters, [DEFAULT_FILTER], equal))) {
       pushBatchMetaUpdates("pageNo", 1);
       this.updatePaginationDirectionFlags(PaginationDirection.INITIAL);
     }
+
     commitBatchMetaUpdates();
   };
 
@@ -1031,23 +1236,27 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
 
   getPaddingAdjustedDimensions = () => {
     // eslint-disable-next-line prefer-const
-    let { componentHeight, componentWidth } = this.getComponentDimensions();
+    let { componentHeight, componentWidth } = this.props;
+
     // (2 * WIDGET_PADDING) gives the total horizontal padding (i.e. paddingLeft + paddingRight)
     componentWidth = componentWidth - 2 * WIDGET_PADDING;
+
     return { componentHeight, componentWidth };
   };
 
-  getPageView() {
+  getWidgetView() {
     const {
-      totalRecordsCount,
+      customIsLoading,
+      customIsLoadingValue,
       delimiter,
-      pageSize,
       filteredTableData = [],
       isVisibleDownload,
       isVisibleFilters,
       isVisiblePagination,
       isVisibleSearch,
+      pageSize,
       primaryColumns,
+      totalRecordsCount,
     } = this.props;
 
     const tableColumns = this.getTableColumns() || emptyArr;
@@ -1094,7 +1303,11 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           height={componentHeight}
           isAddRowInProgress={this.props.isAddRowInProgress}
           isEditableCellsValid={this.props.isEditableCellsValid}
-          isLoading={this.props.isLoading}
+          isLoading={
+            customIsLoading
+              ? customIsLoadingValue || this.props.isLoading
+              : this.props.isLoading
+          }
           isSortable={this.props.isSortable ?? true}
           isVisibleDownload={isVisibleDownload}
           isVisibleFilters={isVisibleFilters}
@@ -1206,8 +1419,10 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           rightOrder,
         },
       };
+
       newTableColumnOrder = tableWidgetColumnOrder;
     }
+
     localStorage.setItem(
       TABLE_COLUMN_ORDER_KEY,
       JSON.stringify(newTableColumnOrder),
@@ -1220,6 +1435,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
       const localTableColumnOrder = getColumnOrderByWidgetIdFromLS(
         this.props.widgetId,
       );
+
       if (this.props.renderMode === RenderModes.CANVAS) {
         newColumnOrder = generateNewColumnOrderFromStickyValue(
           this.props.primaryColumns,
@@ -1243,6 +1459,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         this.props.renderMode === RenderModes.PAGE
       ) {
         const { leftOrder, rightOrder } = localTableColumnOrder;
+
         newColumnOrder = generateLocalNewColumnOrderFromStickyValue(
           localTableColumnOrder.columnOrder,
           columnName,
@@ -1256,6 +1473,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           rightOrder,
           sticky,
         );
+
         this.persistColumnOrder(
           newColumnOrder,
           updatedOrders.leftOrder,
@@ -1285,8 +1503,10 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
       const localTableColumnOrder = getColumnOrderByWidgetIdFromLS(
         this.props.widgetId,
       );
+
       if (localTableColumnOrder) {
         const { leftOrder, rightOrder } = localTableColumnOrder;
+
         this.persistColumnOrder(columnOrder, leftOrder, rightOrder);
       } else {
         this.persistColumnOrder(columnOrder, [], []);
@@ -1335,6 +1555,8 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
     }
   };
 
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handleSearchTable = (searchKey: any) => {
     const {
       commitBatchMetaUpdates,
@@ -1371,17 +1593,18 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
    * This function just pushes the meta update
    */
   pushOnColumnEvent = ({
-    rowIndex,
     action,
-    onComplete = noop,
-    triggerPropertyName,
-    eventType,
-    row,
     additionalData = {},
+    eventType,
+    onComplete = noop,
+    row,
+    rowIndex,
+    triggerPropertyName,
   }: OnColumnEventArgs) => {
     const { filteredTableData = [], pushBatchMetaUpdates } = this.props;
 
     const currentRow = row || filteredTableData[rowIndex];
+
     pushBatchMetaUpdates(
       "triggeredRowIndex",
       currentRow?.[ORIGINAL_INDEX_KEY],
@@ -1400,13 +1623,13 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
    * Function to handle customColumn button type click interactions
    */
   onColumnEvent = ({
-    rowIndex,
     action,
-    onComplete = noop,
-    triggerPropertyName,
-    eventType,
-    row,
     additionalData = {},
+    eventType,
+    onComplete = noop,
+    row,
+    rowIndex,
+    triggerPropertyName,
   }: OnColumnEventArgs) => {
     if (action) {
       const { commitBatchMetaUpdates } = this.props;
@@ -1440,6 +1663,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
       const selectedRowIndices = pageData.map(
         (row: Record<string, unknown>) => row.index,
       );
+
       //single action no need to batch
       this.props.updateWidgetMetaProperty(
         "selectedRowIndices",
@@ -1512,6 +1736,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
       event == EventType.ON_NEXT_PAGE
         ? PaginationDirection.NEXT_PAGE
         : PaginationDirection.PREVIOUS_PAGE;
+
     this.updatePaginationDirectionFlags(paginationDirection);
 
     if (event) {
@@ -1529,6 +1754,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
     if (this.props.onPageChange) {
       this.pushResetSelectedRowIndexUpdates();
     }
+
     commitBatchMetaUpdates();
   };
 
@@ -1577,6 +1803,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
     if (this.props.onPageChange) {
       this.pushResetSelectedRowIndexUpdates();
     }
+
     commitBatchMetaUpdates();
   };
 
@@ -1624,12 +1851,9 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         this.pushResetSelectedRowIndexUpdates();
       }
     }
+
     commitBatchMetaUpdates();
   };
-
-  static getWidgetType(): WidgetType {
-    return "TABLE_WIDGET_V2";
-  }
 
   getColumnIdByAlias(alias: string) {
     const { primaryColumns } = this.props;
@@ -1669,7 +1893,10 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
   };
 
   removeRowFromTransientTableData = (index: number) => {
-    const newTransientTableData = clone(this.props.transientTableData);
+    const newTransientTableData = klonaRegularWithTelemetry(
+      this.props.transientTableData,
+      "TableWidgetV2.removeRowFromTransientTableData",
+    );
     const { commitBatchMetaUpdates, pushBatchMetaUpdates } = this.props;
 
     if (newTransientTableData) {
@@ -1677,6 +1904,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
 
       pushBatchMetaUpdates("transientTableData", newTransientTableData);
     }
+
     pushBatchMetaUpdates("updatedRowIndex", -1);
     commitBatchMetaUpdates();
   };
@@ -1723,6 +1951,8 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
     );
   };
 
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   renderCell = (props: any) => {
     const column =
       this.getColumnByOriginalId(
@@ -1743,11 +1973,11 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
 
     const isHidden = !column.isVisible;
     const {
+      compactMode = CompactModeTypes.DEFAULT,
       filteredTableData = [],
       multiRowSelection,
       selectedRowIndex,
       selectedRowIndices,
-      compactMode = CompactModeTypes.DEFAULT,
     } = this.props;
     let row;
     let originalIndex: number;
@@ -1961,6 +2191,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             isCellEditable={isCellEditable}
             isCellVisible={cellProperties.isCellVisible ?? true}
             isEditable={isColumnEditable}
+            isEditableCellValid={this.isColumnCellValid(alias)}
             isFilterable={cellProperties.isFilterable}
             isHidden={isHidden}
             isNewRow={isNewRow}
@@ -1974,7 +2205,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             resetFilterTextOnClose={cellProperties.resetFilterTextOnClose}
             rowIndex={rowIndex}
             serverSideFiltering={cellProperties.serverSideFiltering}
-            tableWidth={this.getComponentDimensions().componentWidth}
+            tableWidth={this.props.componentWidth}
             textColor={cellProperties.textColor}
             textSize={cellProperties.textSize}
             toggleCellEditMode={this.toggleCellEditMode}
@@ -2306,7 +2537,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             outputFormat={cellProperties.outputFormat}
             rowIndex={rowIndex}
             shortcuts={cellProperties.shortcuts}
-            tableWidth={this.getComponentDimensions().componentWidth}
+            tableWidth={this.props.componentWidth}
             textColor={cellProperties.textColor}
             textSize={cellProperties.textSize}
             timePrecision={cellProperties.timePrecision || TimePrecision.NONE}
@@ -2316,6 +2547,25 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             value={props.cell.value}
             verticalAlignment={cellProperties.verticalAlignment}
             widgetId={this.props.widgetId}
+          />
+        );
+
+      case ColumnTypes.HTML:
+        return (
+          <HTMLCell
+            allowCellWrapping={cellProperties.allowCellWrapping}
+            cellBackground={cellProperties.cellBackground}
+            compactMode={compactMode}
+            fontStyle={cellProperties.fontStyle}
+            horizontalAlignment={cellProperties.horizontalAlignment}
+            isCellDisabled={cellProperties.isCellDisabled}
+            isCellVisible={cellProperties.isCellVisible ?? true}
+            isHidden={isHidden}
+            renderMode={this.props.renderMode}
+            textColor={cellProperties.textColor}
+            textSize={cellProperties.textSize}
+            value={props.cell.value}
+            verticalAlignment={cellProperties.verticalAlignment}
           />
         );
 
@@ -2338,6 +2588,8 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             cellBackground={cellProperties.cellBackground}
             columnType={column.columnType}
             compactMode={compactMode}
+            currencyCode={cellProperties.currencyCode}
+            decimals={cellProperties.decimals}
             disabledEditIcon={
               shouldDisableEdit || this.props.isAddRowInProgress
             }
@@ -2353,12 +2605,14 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             isEditableCellValid={this.isColumnCellValid(alias)}
             isHidden={isHidden}
             isNewRow={isNewRow}
+            notation={cellProperties.notation}
             onCellTextChange={this.onCellTextChange}
             onSubmitString={props.cell.column.columnProperties.onSubmit}
             rowIndex={rowIndex}
-            tableWidth={this.getComponentDimensions().componentWidth}
+            tableWidth={this.props.componentWidth}
             textColor={cellProperties.textColor}
             textSize={cellProperties.textSize}
+            thousandSeparator={cellProperties.thousandSeparator}
             toggleCellEditMode={this.toggleCellEditMode}
             validationErrorMessage={validationErrorMessage}
             value={props.cell.value}
@@ -2391,6 +2645,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           [this.props.editableCell?.column]: value,
         });
       }
+
       commitBatchMetaUpdates();
     }
   };
@@ -2411,6 +2666,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
       if (this.inlineEditTimer) {
         clearTimeout(this.inlineEditTimer);
       }
+
       const { commitBatchMetaUpdates, pushBatchMetaUpdates } = this.props;
 
       pushBatchMetaUpdates("editableCell", {
@@ -2420,6 +2676,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         // To revert back to previous on discard
         initialValue: value,
         inputValue: value,
+        __originalIndex__: this.getRowOriginalIndex(rowIndex),
       });
       pushBatchMetaUpdates("columnEditableCellValue", {
         ...this.props.columnEditableCellValue,
@@ -2438,6 +2695,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           pushBatchMetaUpdates("selectedRowIndex", -1);
         }
       }
+
       commitBatchMetaUpdates();
     } else {
       if (
@@ -2465,6 +2723,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
             },
           });
         }
+
         commitBatchMetaUpdates();
 
         this.clearEditableCell();
@@ -2483,31 +2742,29 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
     value: string,
     onSubmit?: string,
   ) => {
-    if (this.isColumnCellValid(alias)) {
-      const { commitBatchMetaUpdates } = this.props;
+    const { commitBatchMetaUpdates } = this.props;
 
-      this.pushTransientTableDataActionsUpdates({
-        [ORIGINAL_INDEX_KEY]: this.getRowOriginalIndex(rowIndex),
-        [alias]: value,
+    this.pushTransientTableDataActionsUpdates({
+      [ORIGINAL_INDEX_KEY]: this.getRowOriginalIndex(rowIndex),
+      [alias]: value,
+    });
+
+    if (onSubmit && this.props.editableCell?.column) {
+      //since onSubmit is truthy this makes action truthy as well, so we can push this event
+      this.pushOnColumnEvent({
+        rowIndex: rowIndex,
+        action: onSubmit,
+        triggerPropertyName: "onSubmit",
+        eventType: EventType.ON_SUBMIT,
+        row: {
+          ...this.props.filteredTableData[rowIndex],
+          [this.props.editableCell.column]: value,
+        },
       });
-
-      if (onSubmit && this.props.editableCell?.column) {
-        //since onSubmit is truthy this makes action truthy as well, so we can push this event
-        this.pushOnColumnEvent({
-          rowIndex: rowIndex,
-          action: onSubmit,
-          triggerPropertyName: "onSubmit",
-          eventType: EventType.ON_SUBMIT,
-          row: {
-            ...this.props.filteredTableData[rowIndex],
-            [this.props.editableCell.column]: value,
-          },
-        });
-      }
-
-      commitBatchMetaUpdates();
-      this.clearEditableCell();
     }
+
+    commitBatchMetaUpdates();
+    this.clearEditableCell();
   };
   pushClearEditableCellsUpdates = () => {
     const { pushBatchMetaUpdates } = this.props;
@@ -2572,6 +2829,7 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
           },
         });
       }
+
       commitBatchMetaUpdates();
     }
   };
@@ -2605,10 +2863,13 @@ class TableWidgetV2 extends BaseWidget<TableWidgetProps, WidgetState> {
         },
       });
     }
+
     commitBatchMetaUpdates();
   };
 
   onCheckChange = (
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     column: any,
     row: Record<string, unknown>,
     value: boolean,

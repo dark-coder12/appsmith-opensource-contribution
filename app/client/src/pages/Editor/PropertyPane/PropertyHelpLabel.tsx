@@ -1,7 +1,7 @@
 import type { EditorTheme } from "components/editorComponents/CodeEditor/EditorConfig";
 import React from "react";
 import styled from "styled-components";
-import { Tooltip } from "design-system";
+import { Tooltip } from "@appsmith/ads";
 
 const Label = styled.label`
   color: var(--ads-v2-color-fg);
@@ -12,7 +12,7 @@ const Label = styled.label`
   user-select: none;
 `;
 
-type Props = {
+interface Props {
   className?: string;
   tooltip?: string;
   label: string;
@@ -20,7 +20,7 @@ type Props = {
   maxWidth?: string;
   lineHeight?: string;
   onClick?: () => void;
-};
+}
 
 function PropertyHelpLabel(props: Props) {
   const toolTipDefined = props.tooltip !== undefined;
@@ -33,9 +33,9 @@ function PropertyHelpLabel(props: Props) {
       content={props.tooltip || ""}
       isDisabled={!toolTipDefined}
     >
-      <div onClick={props.onClick}>
+      <div className="w-full" onClick={props.onClick}>
         <Label
-          className={`t--property-control-label`}
+          className={`t--property-control-label w-full block text-ellipsis overflow-hidden`}
           style={{
             cursor: toolTipDefined ? "help" : "default",
           }}

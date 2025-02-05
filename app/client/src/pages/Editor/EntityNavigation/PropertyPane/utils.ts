@@ -13,12 +13,14 @@ export const getSectionId = (
   propertyPath: string,
 ): string | undefined => {
   const matchedSections: IMatchedSection[] = [];
+
   function _getSectionId(
     config: readonly PropertyPaneConfig[],
     rootSectionId?: string,
   ) {
     for (let index = 0; index < config.length; index++) {
       const sectionChildren = config[index].children;
+
       if (sectionChildren) {
         for (
           let childIndex = 0;
@@ -28,6 +30,7 @@ export const getSectionId = (
           const controlConfig = sectionChildren[
             childIndex
           ] as PropertyPaneControlConfig;
+
           if (
             controlConfig.propertyName &&
             matchesPropertyPath(propertyPath, controlConfig.propertyName)
@@ -78,14 +81,13 @@ export const getSectionId = (
   // "boxShadow" and "resetButtonStyles.boxShadow"
   // The intendened match is "resetButtonStyles.boxShadow".
   // So we aggregrate matches and find the best match which is the longest string
-  const bestMatchedSection = matchedSections.reduce(function (
-    sectiona,
-    sectionb,
-  ) {
-    return sectiona.propertyName.length > sectionb.propertyName.length
-      ? sectiona
-      : sectionb;
-  });
+  const bestMatchedSection = matchedSections.reduce(
+    function (sectiona, sectionb) {
+      return sectiona.propertyName.length > sectionb.propertyName.length
+        ? sectiona
+        : sectionb;
+    },
+  );
 
   return bestMatchedSection.id;
 };
@@ -102,6 +104,7 @@ export const getSelectedTabIndex = (
   ): number | undefined {
     for (let index = 0; index < config.length; index++) {
       const sectionChildren = config[index].children;
+
       if (sectionChildren) {
         for (
           let childIndex = 0;
@@ -111,6 +114,7 @@ export const getSelectedTabIndex = (
           const controlConfig = sectionChildren[
             childIndex
           ] as PropertyPaneControlConfig;
+
           if (
             matchesPropertyPath(
               propertyPath,
@@ -121,6 +125,7 @@ export const getSelectedTabIndex = (
             return 1;
           } else if (controlConfig.children) {
             const index = _getSelectedTabIndex(controlConfig.children);
+
             // We want to continue searching if there isn't a match, so
             // we don't return/exit unless there is a match
             if (index) return index;
@@ -139,6 +144,7 @@ export const getSelectedTabIndex = (
   }
 
   const finalIndex = _getSelectedTabIndex(config);
+
   return finalIndex ?? 0;
 };
 
@@ -158,8 +164,10 @@ export const getPropertyPanePanelNavigationConfig = (
     parentPanelPath = "",
   ) {
     let stack: IPanelStack[] = [];
+
     for (let index = 0; index < config.length; index++) {
       const sectionChildren = config[index].children;
+
       if (sectionChildren) {
         for (
           let childIndex = 0;
@@ -172,13 +180,16 @@ export const getPropertyPanePanelNavigationConfig = (
           const currentProperty = controlConfig.propertyName;
 
           let pathList = propertyPath.split(".");
+
           if (panelDepth !== 0) {
             const pathWithoutRootProperty = propertyPath.replace(
               `${rootProperty}.`,
               "",
             );
+
             pathList = [rootProperty, ...pathWithoutRootProperty.split(".")];
           }
+
           if (
             matchesPropertyPath(propertyPath, currentProperty, "start") &&
             controlConfig.hasOwnProperty("panelConfig")
@@ -188,6 +199,7 @@ export const getPropertyPanePanelNavigationConfig = (
                 `${currentProperty}.`,
                 "",
               );
+
               pathList = [
                 currentProperty,
                 ...pathWithoutRootProperty.split("."),
@@ -241,6 +253,7 @@ export const getPropertyPanePanelNavigationConfig = (
             });
             // When we don't have multiple tabs we just have `children`
             const panelConfig = contentChildren;
+
             stack = stack.concat(
               _getNavigationConfig(
                 panelConfig as readonly PropertyPaneConfig[],
@@ -249,15 +262,18 @@ export const getPropertyPanePanelNavigationConfig = (
                 newParentPanelPath,
               ),
             );
+
             return stack;
           }
         }
       }
     }
+
     return stack;
   }
 
   const finalConfig = _getNavigationConfig(config, 0);
+
   return finalConfig;
 };
 
@@ -287,10 +303,12 @@ function getPanelIndex(
   panelDepth: number,
 ) {
   const obj = get(widgetProps, panelTabPath);
+
   // The index field never seems to change for the widget
   if (widgetProps.type === "TABLE_WIDGET_V2" && panelDepth === 0) {
     const column = panelTabPath.split(".")[1];
     const columnOrder: string[] = get(widgetProps, "columnOrder");
+
     return columnOrder.indexOf(column);
   }
 
@@ -308,6 +326,7 @@ function getNextParentPropertPath(
   );
   const index = remainingPath.split(".")[0];
   const originalCurrentProperty = remainingPath.split(".")[1];
+
   if (!prevParentPropertyPath) {
     return `${currentProperty}.${index}`;
   }

@@ -4,7 +4,9 @@ import { InputGroup } from "@blueprintjs/core";
 import { debounce } from "lodash";
 import { importSvg } from "../utils/icon-loadables";
 
-const CrossIcon = importSvg(() => import("../assets/icons/ads/cross.svg"));
+const CrossIcon = importSvg(
+  async () => import("../assets/icons/ads/cross.svg"),
+);
 
 interface SearchProps {
   onSearch: (value: any) => void;
@@ -104,6 +106,7 @@ class SearchComponent extends React.Component<
       | React.ChangeEvent<HTMLTextAreaElement>,
   ) => {
     const search = event.target.value;
+
     this.setState({ localValue: search });
     this.onDebouncedSearch(search);
   };

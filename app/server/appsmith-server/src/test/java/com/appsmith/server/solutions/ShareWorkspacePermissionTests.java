@@ -2,23 +2,23 @@ package com.appsmith.server.solutions;
 
 import com.appsmith.external.models.Policy;
 import com.appsmith.server.acl.AclPermission;
+import com.appsmith.server.applications.base.ApplicationService;
 import com.appsmith.server.constants.FieldName;
+import com.appsmith.server.datasources.base.DatasourceService;
 import com.appsmith.server.domains.Application;
 import com.appsmith.server.domains.PermissionGroup;
 import com.appsmith.server.domains.User;
 import com.appsmith.server.domains.Workspace;
 import com.appsmith.server.dtos.PermissionGroupInfoDTO;
 import com.appsmith.server.helpers.PluginExecutorHelper;
+import com.appsmith.server.newactions.base.NewActionService;
+import com.appsmith.server.newpages.base.NewPageService;
+import com.appsmith.server.plugins.base.PluginService;
 import com.appsmith.server.repositories.ApplicationRepository;
 import com.appsmith.server.repositories.PermissionGroupRepository;
 import com.appsmith.server.services.ApplicationPageService;
-import com.appsmith.server.services.ApplicationService;
-import com.appsmith.server.services.DatasourceService;
 import com.appsmith.server.services.LayoutActionService;
-import com.appsmith.server.services.NewActionService;
-import com.appsmith.server.services.NewPageService;
 import com.appsmith.server.services.PermissionGroupService;
-import com.appsmith.server.services.PluginService;
 import com.appsmith.server.services.SessionUserService;
 import com.appsmith.server.services.UserService;
 import com.appsmith.server.services.UserWorkspaceService;
@@ -26,13 +26,11 @@ import com.appsmith.server.services.WorkspaceService;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -44,7 +42,6 @@ import static com.appsmith.server.acl.AclPermission.READ_WORKSPACES;
 import static com.appsmith.server.acl.AclPermission.WORKSPACE_INVITE_USERS;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@ExtendWith(SpringExtension.class)
 @SpringBootTest
 @Slf4j
 @DirtiesContext

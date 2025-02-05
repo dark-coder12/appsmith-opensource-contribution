@@ -1,7 +1,6 @@
 import styled from "styled-components";
 import TreeStructure from "components/utils/TreeStructure";
-import { Text, Icon, Button, Tooltip } from "design-system";
-import { klona } from "klona/lite";
+import { Text, Icon, Button, Tooltip } from "@appsmith/ads";
 import React, { useCallback, useEffect } from "react";
 import { ActionCreatorContext } from "../..";
 import { AppsmithFunction } from "../../constants";
@@ -9,9 +8,11 @@ import type { TActionBlock, VariantType } from "../../types";
 import { chainableFns } from "../../utils";
 import ActionCard from "./ActionCard";
 import ActionSelector from "./ActionSelector";
-import AnalyticsUtil from "utils/AnalyticsUtil";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
 import { getActionTypeLabel } from "../ActionBlockTree/utils";
 import classNames from "classnames";
+import type { AdditionalDynamicDataTree } from "utils/autocomplete/customTreeTypeDefCreator";
+import { klonaLiteWithTelemetry } from "utils/helpers";
 
 const CallbackBlockContainer = styled.div<{
   isSelected: boolean;
@@ -44,6 +45,7 @@ const EMPTY_ACTION_BLOCK: TActionBlock = {
 
 export default function ActionTree(props: {
   actionBlock: TActionBlock;
+  additionalAutoComplete?: AdditionalDynamicDataTree;
   onChange: (actionBlock: TActionBlock) => void;
   className?: string;
   id: string;
@@ -53,6 +55,7 @@ export default function ActionTree(props: {
   widgetName: string;
   propertyName: string;
   widgetType: string;
+  dataTreePath: string | undefined;
 }) {
   const { id } = props;
   const [actionBlock, setActionBlock] = React.useState(props.actionBlock);
@@ -87,6 +90,7 @@ export default function ActionTree(props: {
 
   const handleCardSelection = useCallback(() => {
     if (selectedBlockId === id) return;
+
     selectBlock(id);
     setCallbacksExpanded(true);
   }, [id, selectedBlockId, setCallbacksExpanded, selectBlock]);
@@ -97,15 +101,23 @@ export default function ActionTree(props: {
 
   const handleAddSuccessBlock = useCallback(() => {
     if (!canAddCallback) return;
+
     const {
       success: { blocks },
     } = actionBlock;
     const lastAction = blocks[blocks.length - 1];
+
     if (lastAction?.actionType === AppsmithFunction.none) {
       selectBlock(`${id}_success_${blocks.length - 1}`);
+
       return;
     }
-    const newActionBlock = klona(actionBlock);
+
+    const newActionBlock = klonaLiteWithTelemetry(
+      actionBlock,
+      "ActionTree.handleAddSuccessBlock",
+    );
+
     newActionBlock.success.blocks.push({
       ...EMPTY_ACTION_BLOCK,
       type: lastAction?.type || "then",
@@ -116,15 +128,23 @@ export default function ActionTree(props: {
 
   const handleAddErrorBlock = useCallback(() => {
     if (!canAddCallback) return;
+
     const {
       error: { blocks },
     } = actionBlock;
     const lastAction = blocks[blocks.length - 1];
+
     if (lastAction?.actionType === AppsmithFunction.none) {
       selectBlock(`${id}_failure_${blocks.length - 1}`);
+
       return;
     }
-    const newActionBlock = klona(actionBlock);
+
+    const newActionBlock = klonaLiteWithTelemetry(
+      actionBlock,
+      "ActionTree.handleAddErrorBlock",
+    );
+
     newActionBlock.error.blocks.push({
       ...EMPTY_ACTION_BLOCK,
       type: lastAction?.type || "catch",
@@ -175,6 +195,8 @@ export default function ActionTree(props: {
     <div className={props.className}>
       <ActionSelector
         action={actionBlock}
+        additionalAutoComplete={props.additionalAutoComplete}
+        dataTreePath={props.dataTreePath}
         id={id}
         level={props.level}
         onChange={props.onChange}
@@ -258,6 +280,7 @@ export default function ActionTree(props: {
                       <ActionTree
                         actionBlock={cActionBlock}
                         className="mt-0"
+                        dataTreePath={props.dataTreePath}
                         id={`${id}_${blockType}_${index}`}
                         isLastBlock={index === callbacks.length - 1}
                         key={`${id}_${blockType}_${index}`}
@@ -266,18 +289,24 @@ export default function ActionTree(props: {
                           childActionBlock: TActionBlock,
                           del?: boolean,
                         ) => {
-                          const newActionBlock = klona(actionBlock);
+                          const newActionBlock = klonaLiteWithTelemetry(
+                            actionBlock,
+                            "ActionTree.onChange",
+                          );
+
                           const blocks =
                             blockType === "failure"
                               ? newActionBlock.error.blocks
                               : newActionBlock.success.blocks;
                           let isDummyBlockDelete = false;
+
                           if (del) {
                             isDummyBlockDelete =
                               blocks[index].actionType ===
                               AppsmithFunction.none;
 
                             const deletedBlock = blocks.splice(index, 1)[0];
+
                             AnalyticsUtil.logEvent("ACTION_DELETED", {
                               actionType: getActionTypeLabel(
                                 deletedBlock.actionType,
@@ -292,12 +321,14 @@ export default function ActionTree(props: {
                             const prevActionType = blocks[index].actionType;
                             const newActionType = childActionBlock.actionType;
                             const newActionCode = childActionBlock.code;
+
                             blocks[index].code = childActionBlock.code;
                             blocks[index].actionType =
                               childActionBlock.actionType;
 
                             const actionTypeLabel =
                               getActionTypeLabel(newActionType);
+
                             if (prevActionType === AppsmithFunction.none) {
                               AnalyticsUtil.logEvent("ACTION_ADDED", {
                                 actionType: actionTypeLabel,
@@ -318,6 +349,7 @@ export default function ActionTree(props: {
                               });
                             }
                           }
+
                           if (isDummyBlockDelete) {
                             setActionBlock(newActionBlock);
                           } else {

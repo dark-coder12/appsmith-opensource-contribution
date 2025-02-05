@@ -30,7 +30,11 @@ import {
 } from "./Constants";
 import { Colors } from "constants/Colors";
 import type { EventType } from "constants/AppsmithActionConstants/ActionConstants";
-import type { EditableCell, TableVariant } from "../constants";
+import {
+  ColumnTypes,
+  type EditableCell,
+  type TableVariant,
+} from "../constants";
 import SimpleBar from "simplebar-react";
 import "simplebar-react/dist/simplebar.min.css";
 import { createGlobalStyle } from "styled-components";
@@ -38,7 +42,9 @@ import { Classes as PopOver2Classes } from "@blueprintjs/popover2";
 import StaticTable from "./StaticTable";
 import VirtualTable from "./VirtualTable";
 import fastdom from "fastdom";
-import { ConnectDataOverlay } from "./ConnectDataOverlay";
+import { ConnectDataOverlay } from "widgets/ConnectDataOverlay";
+import { TABLE_CONNECT_OVERLAY_TEXT } from "../constants/messages";
+import { createMessage, CONNECT_BUTTON_TEXT } from "ee/constants/messages";
 
 const SCROLL_BAR_OFFSET = 2;
 const HEADER_MENU_PORTAL_CLASS = ".header-menu-portal";
@@ -47,18 +53,18 @@ const PopoverStyles = createGlobalStyle<{
   widgetId: string;
   borderRadius: string;
 }>`
-    ${HEADER_MENU_PORTAL_CLASS}-${({ widgetId }) => widgetId}
-    {
-      font-family: var(--wds-font-family) !important;
+  ${HEADER_MENU_PORTAL_CLASS}-${({ widgetId }) => widgetId} {
+    font-family: var(--wds-font-family) !important;
 
-      & .${PopOver2Classes.POPOVER2},
-      .${PopOver2Classes.POPOVER2_CONTENT},
-      .bp3-menu {
-        border-radius: ${({ borderRadius }) =>
-          borderRadius >= `1.5rem` ? `0.375rem` : borderRadius} !important;
-      }
+    & .${PopOver2Classes.POPOVER2},
+    .${PopOver2Classes.POPOVER2_CONTENT},
+    .bp3-menu {
+      border-radius: ${({ borderRadius }) =>
+        borderRadius >= `1.5rem` ? `0.375rem` : borderRadius} !important;
     }
+  }
 `;
+
 export interface TableProps {
   width: number;
   height: number;
@@ -96,6 +102,8 @@ export interface TableProps {
     pageData: ReactTableRowType<Record<string, unknown>>[],
   ) => void;
   triggerRowSelection: boolean;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   searchTableData: (searchKey: any) => void;
   filters?: ReactTableFilter[];
   applyFilter: (filters: ReactTableFilter[]) => void;
@@ -133,7 +141,7 @@ const defaultColumn = {
   width: 150,
 };
 
-export type HeaderComponentProps = {
+export interface HeaderComponentProps {
   enableDrag: () => void;
   disableDrag: () => void;
   multiRowSelection?: boolean;
@@ -144,6 +152,8 @@ export type HeaderComponentProps = {
   columnOrder?: string[];
   accentColor: string;
   borderRadius: string;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   headerGroups: any;
   canFreezeColumn?: boolean;
   editMode: boolean;
@@ -154,12 +164,16 @@ export type HeaderComponentProps = {
   columns: ReactTableColumnProps[];
   width: number;
   subPage: ReactTableRowType<Record<string, unknown>>[];
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   prepareRow: any;
   headerWidth?: number;
   rowSelectionState: 0 | 1 | 2 | null;
   widgetId: string;
-};
+}
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const emptyArr: any = [];
 
 export function Table(props: TableProps) {
@@ -169,6 +183,7 @@ export function Table(props: TableProps) {
       ...props.columnWidthMap,
       ...columnWidths,
     };
+
     for (const i in columnWidthMap) {
       if (columnWidthMap[i] < 60) {
         columnWidthMap[i] = 60;
@@ -176,9 +191,11 @@ export function Table(props: TableProps) {
         const columnCounts = props.columns.filter(
           (column) => !column.isHidden,
         ).length;
+
         columnWidthMap[i] = props.width / columnCounts;
       }
     }
+
     props.handleResizeColumn(columnWidthMap);
   };
   const {
@@ -230,6 +247,7 @@ export function Table(props: TableProps) {
     useRowSelect,
     useSticky,
   );
+
   //Set isResizingColumn as true when column is resizing using table state
   if (state.columnResizing.isResizingColumn) {
     isResizingColumn.current = true;
@@ -244,12 +262,15 @@ export function Table(props: TableProps) {
       }, 0);
     }
   }
+
   let startIndex = currentPageIndex * props.pageSize;
   let endIndex = startIndex + props.pageSize;
+
   if (props.serverSidePaginationEnabled) {
     startIndex = 0;
     endIndex = props.data.length;
   }
+
   const subPage = useMemo(
     () => page.slice(startIndex, endIndex),
     [page, startIndex, endIndex],
@@ -262,6 +283,7 @@ export function Table(props: TableProps) {
   const rowSelectionState = React.useMemo(() => {
     // return : 0; no row selected | 1; all row selected | 2: some rows selected
     if (!multiRowSelection) return null;
+
     const selectedRowCount = reduce(
       page,
       (count, row) => {
@@ -271,6 +293,7 @@ export function Table(props: TableProps) {
     );
     const result =
       selectedRowCount === 0 ? 0 : selectedRowCount === page.length ? 1 : 2;
+
     return result;
   }, [multiRowSelection, page, selectedRowIndices]);
   const handleAllRowSelectClick = useCallback(
@@ -293,18 +316,30 @@ export function Table(props: TableProps) {
   const scrollContainerStyles = useMemo(() => {
     return {
       height: isHeaderVisible
-        ? props.height -
-          tableSizes.TABLE_HEADER_HEIGHT -
-          TABLE_SCROLLBAR_HEIGHT -
-          SCROLL_BAR_OFFSET
+        ? props.height - tableSizes.TABLE_HEADER_HEIGHT - TABLE_SCROLLBAR_HEIGHT
         : props.height - TABLE_SCROLLBAR_HEIGHT - SCROLL_BAR_OFFSET,
+      width: props.width,
     };
-  }, [isHeaderVisible, props.height, tableSizes.TABLE_HEADER_HEIGHT]);
+  }, [
+    isHeaderVisible,
+    props.height,
+    tableSizes.TABLE_HEADER_HEIGHT,
+    props.width,
+  ]);
 
+  /**
+   * What this really translates is to fixed height rows:
+   * shouldUseVirtual: false -> fixed height row, irrespective of content small or big
+   * shouldUseVirtual: true -> height adjusts acc to content
+   * Right now all HTML content is dynamic height in nature hence
+   * for server paginated tables it needs this extra handling.
+   */
   const shouldUseVirtual =
     props.serverSidePaginationEnabled &&
     !props.columns.some(
-      (column) => !!column.columnProperties.allowCellWrapping,
+      (column) =>
+        !!column.columnProperties.allowCellWrapping ||
+        column.metaProperties?.type === ColumnTypes.HTML,
     );
 
   useEffect(() => {
@@ -320,7 +355,11 @@ export function Table(props: TableProps) {
   return (
     <>
       {showConnectDataOverlay && (
-        <ConnectDataOverlay onConnectData={props.onConnectData} />
+        <ConnectDataOverlay
+          btnText={createMessage(CONNECT_BUTTON_TEXT)}
+          message={createMessage(TABLE_CONNECT_OVERLAY_TEXT)}
+          onConnectData={props.onConnectData}
+        />
       )}
       <TableWrapper
         accentColor={props.accentColor}
@@ -329,7 +368,6 @@ export function Table(props: TableProps) {
         borderRadius={props.borderRadius}
         borderWidth={props.borderWidth}
         boxShadow={props.boxShadow}
-        className={showConnectDataOverlay ? "blur" : ""}
         height={props.height}
         id={`table${props.widgetId}`}
         isAddRowInProgress={props.isAddRowInProgress}
@@ -411,8 +449,8 @@ export function Table(props: TableProps) {
             props.isLoading
               ? Classes.SKELETON
               : shouldUseVirtual
-              ? "tableWrap virtual"
-              : "tableWrap"
+                ? "tableWrap virtual"
+                : "tableWrap"
           }
           ref={tableWrapperRef}
         >

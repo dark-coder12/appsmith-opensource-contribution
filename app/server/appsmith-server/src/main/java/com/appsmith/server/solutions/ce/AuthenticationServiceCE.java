@@ -3,6 +3,8 @@ package com.appsmith.server.solutions.ce;
 import com.appsmith.external.models.DatasourceStorage;
 import com.appsmith.external.models.OAuth2ResponseDTO;
 import com.appsmith.server.dtos.AuthorizationCodeCallbackDTO;
+import com.appsmith.server.dtos.RequestAppsmithTokenDTO;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import reactor.core.publisher.Mono;
 
@@ -33,32 +35,11 @@ public interface AuthenticationServiceCE {
     Mono<String> getAppsmithToken(
             String datasourceId,
             String environmentId,
-            String pageId,
-            String branchName,
-            ServerHttpRequest request,
+            RequestAppsmithTokenDTO requestAppsmithTokenDTO,
+            HttpHeaders headers,
             String importForGit);
 
     Mono<OAuth2ResponseDTO> getAccessTokenFromCloud(String datasourceId, String environmentId, String appsmithToken);
 
     Mono<DatasourceStorage> refreshAuthentication(DatasourceStorage datasourceStorage);
-
-    // TODO: temporaray tranisition commit: will be removed when client starts to send environmentId in the headers:
-    Mono<String> getAuthorizationCodeURLForGenericOAuth2(
-            String datasourceId,
-            String environmentId,
-            String pageId,
-            ServerHttpRequest httpRequest,
-            Boolean isTrueEnvironmentIdRequired);
-
-    Mono<String> getAppsmithToken(
-            String datasourceId,
-            String environmentId,
-            String pageId,
-            String branchName,
-            ServerHttpRequest request,
-            String importForGit,
-            Boolean isTrueEnvironmentIdRequired);
-
-    Mono<OAuth2ResponseDTO> getAccessTokenFromCloud(
-            String datasourceId, String environmentId, String appsmithToken, Boolean isTrueEnvironmentIdRequired);
 }

@@ -5,6 +5,7 @@ import com.appsmith.external.helpers.Identifiable;
 import com.appsmith.external.models.ActionDTO;
 import com.appsmith.external.models.BaseDomain;
 import com.appsmith.server.configurations.CommonConfig;
+import com.appsmith.server.configurations.DeploymentProperties;
 import com.appsmith.server.configurations.ProjectProperties;
 import com.appsmith.server.constants.FieldName;
 import com.appsmith.server.domains.NewPage;
@@ -30,12 +31,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static com.appsmith.external.constants.AnalyticsConstants.ADMIN_EMAIL_DOMAIN_HASH;
 import static com.appsmith.external.constants.AnalyticsConstants.EMAIL_DOMAIN_HASH;
 import static com.appsmith.external.constants.AnalyticsConstants.GOAL;
 import static com.appsmith.external.constants.AnalyticsConstants.IP;
 import static com.appsmith.external.constants.AnalyticsConstants.IP_ADDRESS;
 import static com.appsmith.server.constants.ce.FieldNameCE.EMAIL;
 import static com.appsmith.server.constants.ce.FieldNameCE.NAME;
+import static com.appsmith.server.constants.ce.FieldNameCE.PROFICIENCY;
 import static com.appsmith.server.constants.ce.FieldNameCE.ROLE;
 
 @Slf4j
@@ -49,6 +52,7 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
     private final UserUtils userUtils;
 
     private final ProjectProperties projectProperties;
+    private final DeploymentProperties deploymentProperties;
 
     private final UserDataRepository userDataRepository;
 
@@ -60,6 +64,7 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
             ConfigService configService,
             UserUtils userUtils,
             ProjectProperties projectProperties,
+            DeploymentProperties deploymentProperties,
             UserDataRepository userDataRepository) {
         this.analytics = analytics;
         this.sessionUserService = sessionUserService;
@@ -67,6 +72,7 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
         this.configService = configService;
         this.userUtils = userUtils;
         this.projectProperties = projectProperties;
+        this.deploymentProperties = deploymentProperties;
         this.userDataRepository = userDataRepository;
     }
 
@@ -75,7 +81,7 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
     }
 
     private String hash(String value) {
-        return value == null ? "" : DigestUtils.sha256Hex(value);
+        return StringUtils.isEmpty(value) ? "" : DigestUtils.sha256Hex(value);
     }
 
     private String getEmailDomainHash(String email) {
@@ -135,7 +141,8 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
                                     "isSuperUser", isSuperUser,
                                     "instanceId", instanceId,
                                     "mostRecentlyUsedWorkspaceId", tuple.getT4(),
-                                    "role", ObjectUtils.defaultIfNull(userData.getRole(), ""),
+                                    "role", "",
+                                    "proficiency", ObjectUtils.defaultIfNull(userData.getProficiency(), ""),
                                     "goal", ObjectUtils.defaultIfNull(userData.getUseCase(), ""))));
                     analytics.flush();
                     return savedUser;
@@ -143,7 +150,7 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
     }
 
     public void identifyInstance(
-            String instanceId, String role, String useCase, String adminEmail, String adminFullName, String ip) {
+            String instanceId, String proficiency, String useCase, String adminEmail, String adminFullName, String ip) {
         if (!isActive()) {
             return;
         }
@@ -154,7 +161,9 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
                         "isInstance",
                         true, // Is this "identify" data-point for a user or an instance?
                         ROLE,
-                        ObjectUtils.defaultIfNull(role, ""),
+                        "",
+                        PROFICIENCY,
+                        ObjectUtils.defaultIfNull(proficiency, ""),
                         GOAL,
                         ObjectUtils.defaultIfNull(useCase, ""),
                         EMAIL,
@@ -189,13 +198,9 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
         final String emailDomainHash = getEmailDomainHash(immutableUserId);
 
         // Hash usernames at all places for self-hosted instance
-        if (userId != null
-                && hashUserId
-                && !commonConfig.isCloudHosting()
-                // But send the email intact for the subscribe event, which is sent only if the user has explicitly
-                // agreed to it.
-                && !AnalyticsEvents.SUBSCRIBE_MARKETING_EMAILS.name().equals(event)) {
+        if (shouldHashUserId(event, userId, hashUserId, commonConfig.isCloudHosting())) {
             final String hashedUserId = hash(userId);
+            // Remove request key, if it's self-hosted as it contains user's evaluated params
             analyticsProperties.remove("request");
             for (final Map.Entry<String, Object> entry : analyticsProperties.entrySet()) {
                 if (userId.equals(entry.getValue())) {
@@ -243,13 +248,27 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
                         String email = analyticsProperties.get(EMAIL) != null
                                 ? analyticsProperties.get(EMAIL).toString()
                                 : "";
-                        analyticsProperties.put(EMAIL_DOMAIN_HASH, getEmailDomainHash(email));
+                        String domainHash = getEmailDomainHash(email);
+                        analyticsProperties.put(EMAIL_DOMAIN_HASH, domainHash);
+                        analyticsProperties.put(ADMIN_EMAIL_DOMAIN_HASH, domainHash);
                     } else {
                         analyticsProperties.put(EMAIL_DOMAIN_HASH, emailDomainHash);
+                        analyticsProperties.put(ADMIN_EMAIL_DOMAIN_HASH, commonConfig.getAdminEmailDomainHash());
                     }
                     analyticsProperties.put("originService", "appsmith-server");
                     analyticsProperties.put("instanceId", instanceId);
                     analyticsProperties.put("version", projectProperties.getVersion());
+                    analyticsProperties.put(
+                            "edition", ObjectUtils.defaultIfNull(deploymentProperties.getEdition(), ""));
+                    analyticsProperties.put(
+                            "cloudProvider", ObjectUtils.defaultIfNull(deploymentProperties.getCloudProvider(), ""));
+                    analyticsProperties.put("efs", ObjectUtils.defaultIfNull(deploymentProperties.getEfs(), ""));
+                    analyticsProperties.put("tool", ObjectUtils.defaultIfNull(deploymentProperties.getTool(), ""));
+                    analyticsProperties.put(
+                            "hostname", ObjectUtils.defaultIfNull(deploymentProperties.getHostname(), ""));
+                    analyticsProperties.put(
+                            "deployedAt", ObjectUtils.defaultIfNull(deploymentProperties.getDeployedAt(), ""));
+
                     messageBuilder = messageBuilder.properties(analyticsProperties);
                     analytics.enqueue(messageBuilder);
                     return instanceId;
@@ -267,6 +286,12 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
             return Mono.just(object);
         }
 
+        // Get the event name tag based on the event and object
+        // Event tag is of the form `eventName_objectClassName` or just `eventName` if the event is not associated with
+        // any object.
+        // Example of form eventName_objectClassName: `create_user`, `update_page`, `delete_action`
+        // Example of form eventName: `execute_ACTION_TRIGGERED`, `Authentication Method Configured`
+        // For more info on this, refer to the `getEventTag` method and `getNonResourceEvents` method
         final String eventTag = getEventTag(event, object);
 
         // We will create an anonymous user object for event tracking if no user is present
@@ -361,6 +386,27 @@ public class AnalyticsServiceCEImpl implements AnalyticsServiceCE {
                 AnalyticsEvents.DS_TEST_EVENT_SUCCESS,
                 AnalyticsEvents.DS_TEST_EVENT_FAILED,
                 AnalyticsEvents.DS_SCHEMA_FETCH_EVENT);
+    }
+
+    /**
+     * Tells whether to hash userId or not for events
+     *
+     * @param event String
+     * @param userId String
+     * @param hashUserId Boolean
+     * @param isCloudHosting Boolean
+     * @return Boolean
+     */
+    public static Boolean shouldHashUserId(String event, String userId, boolean hashUserId, boolean isCloudHosting) {
+        // In case of anonymous users and self hosted instance, we do not need to hash userId
+        // If we hash userId in such case, mixpanel will club all of such events as one unique instance
+        return userId != null
+                && hashUserId
+                && !userId.equals(FieldName.ANONYMOUS_USER)
+                && !isCloudHosting
+                // But send the email intact for the subscribe event, which is sent only if the user has explicitly
+                // agreed to it.
+                && !AnalyticsEvents.SUBSCRIBE_MARKETING_EMAILS.name().equals(event);
     }
 
     public <T extends BaseDomain> Mono<T> sendCreateEvent(T object, Map<String, Object> extraProperties) {

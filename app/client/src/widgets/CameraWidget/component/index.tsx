@@ -43,31 +43,32 @@ import {
   MediaCaptureActionTypes,
   MediaCaptureStatusTypes,
 } from "../constants";
-import type { ThemeProp } from "widgets/constants";
-import { isAirgapped } from "@appsmith/utils/airgapHelpers";
-import { importSvg } from "design-system-old";
+import type { ThemeProp } from "WidgetProvider/constants";
+import { isAirgapped } from "ee/utils/airgapHelpers";
+import { importSvg } from "@appsmith/ads-old";
 import { getVideoConstraints } from "../../utils";
+import { CANVAS_ART_BOARD } from "constants/componentClassNameConstants";
 
 const CameraOfflineIcon = importSvg(
-  () => import("assets/icons/widget/camera/camera-offline.svg"),
+  async () => import("assets/icons/widget/camera/camera-offline.svg"),
 );
 const CameraIcon = importSvg(
-  () => import("assets/icons/widget/camera/camera.svg"),
+  async () => import("assets/icons/widget/camera/camera.svg"),
 );
 const CameraMutedIcon = importSvg(
-  () => import("assets/icons/widget/camera/camera-muted.svg"),
+  async () => import("assets/icons/widget/camera/camera-muted.svg"),
 );
 const MicrophoneIcon = importSvg(
-  () => import("assets/icons/widget/camera/microphone.svg"),
+  async () => import("assets/icons/widget/camera/microphone.svg"),
 );
 const MicrophoneMutedIcon = importSvg(
-  () => import("assets/icons/widget/camera/microphone-muted.svg"),
+  async () => import("assets/icons/widget/camera/microphone-muted.svg"),
 );
 const FullScreenIcon = importSvg(
-  () => import("assets/icons/widget/camera/fullscreen.svg"),
+  async () => import("assets/icons/widget/camera/fullscreen.svg"),
 );
 const ExitFullScreenIcon = importSvg(
-  () => import("assets/icons/widget/camera/exit-fullscreen.svg"),
+  async () => import("assets/icons/widget/camera/exit-fullscreen.svg"),
 );
 
 const overlayerMixin = css`
@@ -96,6 +97,7 @@ const CameraContainer = styled.div<CameraContainerProps>`
   justify-content: center;
   overflow: hidden;
   height: 100%;
+  width: 100%;
   border-radius: ${({ borderRadius }) => borderRadius};
   box-shadow: ${({ boxShadow }) => boxShadow};
   background: ${({ disabled }) => (disabled ? Colors.GREY_3 : Colors.BLACK)};
@@ -304,6 +306,7 @@ function ControlPanel(props: ControlPanelProps) {
       };
 
       document.addEventListener("click", handleClickOutside, false);
+
       return () => {
         document.removeEventListener("click", handleClickOutside, false);
       };
@@ -713,6 +716,7 @@ export interface TimerProps {
 
 function Timer(props: TimerProps) {
   const { days, hours, minutes, seconds } = props;
+
   return (
     <TimerContainer>
       {!!days && <span>{`${getFormattedDigit(days)}:`}</span>}
@@ -731,6 +735,7 @@ export interface DeviceMenuProps {
 
 function DeviceMenu(props: DeviceMenuProps) {
   const { items, onItemClick } = props;
+
   return (
     <Menu>
       {items.map((item: MediaDeviceInfo) => {
@@ -784,11 +789,14 @@ function DevicePopover(props: DevicePopoverProps) {
       if (disabled) {
         return <CameraMutedIcon />;
       }
+
       return <CameraIcon />;
     }
+
     if (disabled) {
       return <MicrophoneMutedIcon />;
     }
+
     return <MicrophoneIcon />;
   };
 
@@ -805,7 +813,9 @@ function DevicePopover(props: DevicePopoverProps) {
           content={<DeviceMenu items={items} onItemClick={onItemClick} />}
           disabled={disabledMenu}
           minimal
-          portalContainer={document.getElementById("art-board") || undefined}
+          portalContainer={
+            document.getElementById(CANVAS_ART_BOARD) || undefined
+          }
         >
           <Button
             disabled={disabledMenu}
@@ -899,8 +909,10 @@ function CameraComponent(props: CameraComponentProps) {
 
     if (mode === CameraModeTypes.CAMERA) {
       setMediaCaptureStatus(MediaCaptureStatusTypes.IMAGE_DEFAULT);
+
       return;
     }
+
     setMediaCaptureStatus(MediaCaptureStatusTypes.VIDEO_DEFAULT);
 
     return () => {
@@ -945,6 +957,7 @@ function CameraComponent(props: CameraComponentProps) {
       MediaCaptureStatusTypes.VIDEO_PLAYING_AFTER_SAVE,
       MediaCaptureStatusTypes.VIDEO_PAUSED_AFTER_SAVE,
     ];
+
     setIsPhotoViewerReady(photoReadyStates.includes(mediaCaptureStatus));
     setIsVideoPlayerReady(videoReadyStates.includes(mediaCaptureStatus));
   }, [mediaCaptureStatus]);
@@ -980,6 +993,7 @@ function CameraComponent(props: CameraComponentProps) {
           deviceId: mediaDeviceInfo.deviceId,
         });
       }
+
       if (mediaDeviceInfo.kind === "videoinput") {
         const constraints = getVideoConstraints(
           videoConstraints,
@@ -987,6 +1001,7 @@ function CameraComponent(props: CameraComponentProps) {
           "", // when switching camera device we don't want to set the default camera ( facing mode )
           mediaDeviceInfo.deviceId,
         );
+
         setVideoConstraints(constraints);
       }
     },
@@ -1001,6 +1016,7 @@ function CameraComponent(props: CameraComponentProps) {
   const captureImage = useCallback(() => {
     if (webcamRef.current) {
       const capturedImage = webcamRef.current.getScreenshot();
+
       setImage(capturedImage);
     }
   }, [webcamRef, setImage]);
@@ -1011,8 +1027,10 @@ function CameraComponent(props: CameraComponentProps) {
 
     if (mode === CameraModeTypes.CAMERA) {
       setImage(null);
+
       return;
     }
+
     onRecordingStop(null);
   }, [mode]);
 
@@ -1059,6 +1077,7 @@ function CameraComponent(props: CameraComponentProps) {
       reset(0, false);
       setIsReadyPlayerTimer(true);
     }
+
     videoElementRef.current?.play();
   }, [videoElementRef]);
 
@@ -1097,6 +1116,7 @@ function CameraComponent(props: CameraComponentProps) {
     if (typeof error === "string") {
       setError(error);
     }
+
     setError((error as DOMException).message);
   }, []);
 
@@ -1112,10 +1132,12 @@ function CameraComponent(props: CameraComponentProps) {
           />
         );
       }
+
       return (
         <Timer days={days} hours={hours} minutes={minutes} seconds={seconds} />
       );
     }
+
     return null;
   };
 

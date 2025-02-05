@@ -12,6 +12,7 @@ import com.appsmith.external.models.ActionExecutionRequest;
 import com.appsmith.external.models.ActionExecutionResult;
 import com.appsmith.external.models.DatasourceConfiguration;
 import com.appsmith.external.models.DatasourceStructure;
+import com.appsmith.external.models.Endpoint;
 import com.appsmith.external.models.MustacheBindingToken;
 import com.appsmith.external.models.Param;
 import com.appsmith.external.models.PsParameterDTO;
@@ -26,6 +27,7 @@ import com.external.plugins.utils.OracleSpecificDataTypes;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.ObjectUtils;
 import org.pf4j.Extension;
 import org.pf4j.PluginWrapper;
 import org.springframework.util.CollectionUtils;
@@ -79,6 +81,7 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 
 @Slf4j
 public class OraclePlugin extends BasePlugin {
+    public static final Long ORACLE_DEFAULT_PORT = 1521L;
     public static final OracleDatasourceUtils oracleDatasourceUtils = new OracleDatasourceUtils();
 
     public OraclePlugin(PluginWrapper wrapper) {
@@ -91,6 +94,7 @@ public class OraclePlugin extends BasePlugin {
 
         @Override
         public Mono<HikariDataSource> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for Oracle plugin.");
             try {
                 Class.forName(JDBC_DRIVER);
             } catch (ClassNotFoundException e) {
@@ -114,6 +118,7 @@ public class OraclePlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for Oracle plugin.");
             return OracleDatasourceUtils.validateDatasource(datasourceConfiguration);
         }
 
@@ -132,6 +137,8 @@ public class OraclePlugin extends BasePlugin {
                 ExecuteActionDTO executeActionDTO,
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
+
+            log.debug(Thread.currentThread().getName() + ": executeParameterized() called for Oracle plugin.");
             final Map<String, Object> formData = actionConfiguration.getFormData();
             String query = getDataValueSafelyFromFormData(formData, BODY, STRING_TYPE, null);
             // Check for query parameter before performing the probably expensive fetch connection from the pool op.
@@ -190,6 +197,7 @@ public class OraclePlugin extends BasePlugin {
                 List<MustacheBindingToken> mustacheValuesInOrder,
                 ExecuteActionDTO executeActionDTO) {
 
+            log.debug(Thread.currentThread().getName() + ": executeCommon() called for Oracle plugin.");
             final Map<String, Object> requestData = new HashMap<>();
             requestData.put("preparedStatement", TRUE.equals(preparedStatement) ? true : false);
 
@@ -218,7 +226,7 @@ public class OraclePlugin extends BasePlugin {
                             // library throws SQLException in case the pool is closed or there is an issue initializing
                             // the connection pool which can also be translated in our world to StaleConnectionException
                             // and should then trigger the destruction and recreation of the pool.
-                            log.debug("Exception Occurred while getting connection from pool" + e.getMessage());
+                            log.error("Exception Occurred while getting connection from pool" + e.getMessage());
                             e.printStackTrace(System.out);
                             return Mono.error(
                                     e instanceof StaleConnectionException
@@ -271,9 +279,9 @@ public class OraclePlugin extends BasePlugin {
                                     statement,
                                     preparedQuery);
                         } catch (SQLException e) {
-                            log.debug(Thread.currentThread().getName()
+                            log.error(Thread.currentThread().getName()
                                     + ": In the OraclePlugin, got action execution error");
-                            log.debug(e.getMessage());
+                            log.error(e.getMessage());
                             return Mono.error(new AppsmithPluginException(
                                     OraclePluginError.QUERY_EXECUTION_FAILED,
                                     OracleErrorMessages.QUERY_EXECUTION_FAILED_ERROR_MSG,
@@ -322,6 +330,7 @@ public class OraclePlugin extends BasePlugin {
         @Override
         public Mono<DatasourceStructure> getStructure(
                 HikariDataSource connectionPool, DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": getStructure() called for Oracle plugin.");
             return OracleDatasourceUtils.getStructure(connectionPool, datasourceConfiguration);
         }
 
@@ -426,6 +435,25 @@ public class OraclePlugin extends BasePlugin {
             }
 
             return preparedStatement;
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName()
+                    + ": getEndpointIdentifierForRateLimit() called for Oracle plugin.");
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                Long port = endpoints.get(0).getPort();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_" + ObjectUtils.defaultIfNull(port, ORACLE_DEFAULT_PORT);
+                }
+            }
+            return Mono.just(identifier);
         }
     }
 }

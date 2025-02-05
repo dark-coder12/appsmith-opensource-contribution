@@ -1,100 +1,127 @@
 import log from "loglevel";
-import React from "react";
+import React, { useCallback } from "react";
 import styled from "styled-components";
 import * as Sentry from "@sentry/react";
-import { useSelector } from "react-redux";
-import WidgetFactory from "utils/WidgetFactory";
-import type { CanvasWidgetStructure } from "widgets/constants";
-
-import { RenderModes } from "constants/WidgetConstants";
+import { useDispatch, useSelector } from "react-redux";
+import type { CanvasWidgetStructure } from "WidgetProvider/constants";
 import useWidgetFocus from "utils/hooks/useWidgetFocus";
-import { useFeatureFlag } from "utils/hooks/useFeatureFlag";
-import { previewModeSelector } from "selectors/editorSelectors";
+import { selectCombinedPreviewMode } from "selectors/gitModSelectors";
 import { getSelectedAppTheme } from "selectors/appThemingSelectors";
-import { getViewportClassName } from "utils/autoLayout/AutoLayoutUtils";
+import { getViewportClassName } from "layoutSystems/autolayout/utils/AutoLayoutUtils";
 import {
   ThemeProvider as WDSThemeProvider,
   useTheme,
-} from "@design-system/theming";
+} from "@appsmith/wds-theming";
 import { getIsAppSettingsPaneWithNavigationTabOpen } from "selectors/appSettingsPaneSelectors";
+import { CANVAS_ART_BOARD } from "constants/componentClassNameConstants";
+import { renderAppsmithCanvas } from "layoutSystems/CanvasFactory";
+import type { WidgetProps } from "widgets/BaseWidget";
+import { getAppThemeSettings } from "ee/selectors/applicationSelectors";
+import CodeModeTooltip from "pages/Editor/WidgetsEditor/components/CodeModeTooltip";
+import { getIsAnvilLayout } from "layoutSystems/anvil/integrations/selectors";
+import { focusWidget } from "actions/widgetActions";
 
 interface CanvasProps {
   widgetsStructure: CanvasWidgetStructure;
-  pageId: string;
   canvasWidth: number;
-  isAutoLayout?: boolean;
+  enableMainCanvasResizer?: boolean;
 }
 
-const Container = styled.section<{
+const StyledWDSThemeProvider = styled(WDSThemeProvider)`
+  min-height: 100%;
+  display: flex;
+`;
+
+const Wrapper = styled.section<{
   background: string;
   width: number;
-  $isAutoLayout: boolean;
+  $enableMainCanvasResizer: boolean;
 }>`
+  flex: 1;
   background: ${({ background }) => background};
-  width: ${({ $isAutoLayout, width }) =>
-    $isAutoLayout ? `100%` : `${width}px`};
+  width: ${({ $enableMainCanvasResizer, width }) =>
+    $enableMainCanvasResizer ? `100%` : `${width}px`};
 `;
 const Canvas = (props: CanvasProps) => {
   const { canvasWidth } = props;
-  const isPreviewMode = useSelector(previewModeSelector);
+  const isPreviewMode = useSelector(selectCombinedPreviewMode);
   const isAppSettingsPaneWithNavigationTabOpen = useSelector(
     getIsAppSettingsPaneWithNavigationTabOpen,
   );
   const selectedTheme = useSelector(getSelectedAppTheme);
-  const isWDSV2Enabled = useFeatureFlag("ab_wds_enabled");
-  const { theme } = useTheme({
-    borderRadius: selectedTheme.properties.borderRadius.appBorderRadius,
-    seedColor: selectedTheme.properties.colors.primaryColor,
-  });
+  const isAnvilLayout = useSelector(getIsAnvilLayout);
+
+  const themeSetting = useSelector(getAppThemeSettings);
+  const wdsThemeProps = {
+    borderRadius: themeSetting.borderRadius,
+    seedColor: themeSetting.accentColor,
+    colorMode: themeSetting.colorMode.toLowerCase(),
+    userSizing: themeSetting.sizing,
+    userDensity: themeSetting.density,
+  } as Parameters<typeof useTheme>[0];
+  // in case of non-WDS theme, we will pass an empty object to useTheme hook
+  // so that fixedLayout theme does not break because of calculations done in useTheme
+  const { theme } = useTheme(isAnvilLayout ? wdsThemeProps : {});
+
+  const dispatch = useDispatch();
+  const unfocusAllWidgets = useCallback(() => {
+    dispatch(focusWidget());
+  }, [dispatch]);
 
   /**
    * background for canvas
    */
-  let backgroundForCanvas;
+  let backgroundForCanvas: string;
 
   if (isPreviewMode || isAppSettingsPaneWithNavigationTabOpen) {
-    if (isWDSV2Enabled) {
-      backgroundForCanvas = "var(--color-bg)";
-    } else {
-      backgroundForCanvas = "initial";
-    }
+    backgroundForCanvas = "initial";
   } else {
-    if (isWDSV2Enabled) {
-      backgroundForCanvas = "var(--color-bg)";
-    } else {
-      backgroundForCanvas = selectedTheme.properties.colors.backgroundColor;
-    }
+    backgroundForCanvas = selectedTheme.properties.colors.backgroundColor;
   }
 
   const focusRef = useWidgetFocus();
 
-  const marginHorizontalClass = props.isAutoLayout ? `mx-0` : `mx-auto`;
-  const paddingBottomClass = props.isAutoLayout ? "" : "pb-52";
-  try {
+  const marginHorizontalClass = props.enableMainCanvasResizer
+    ? `mx-0`
+    : `mx-auto`;
+  const paddingBottomClass = props.enableMainCanvasResizer ? "" : "pb-52";
+
+  const renderChildren = () => {
     return (
-      <WDSThemeProvider theme={theme}>
-        <Container
-          $isAutoLayout={!!props.isAutoLayout}
-          background={backgroundForCanvas}
-          className={`relative t--canvas-artboard ${paddingBottomClass} ${marginHorizontalClass} ${getViewportClassName(
+      <CodeModeTooltip>
+        <Wrapper
+          $enableMainCanvasResizer={!!props.enableMainCanvasResizer}
+          background={isAnvilLayout ? "" : backgroundForCanvas}
+          className={`relative t--canvas-artboard as-mask ${paddingBottomClass} ${marginHorizontalClass} ${getViewportClassName(
             canvasWidth,
           )}`}
-          data-testid="t--canvas-artboard"
-          id="art-board"
-          ref={focusRef}
+          data-testid={"t--canvas-artboard"}
+          id={CANVAS_ART_BOARD}
+          onMouseLeave={unfocusAllWidgets}
+          ref={isAnvilLayout ? undefined : focusRef}
           width={canvasWidth}
         >
           {props.widgetsStructure.widgetId &&
-            WidgetFactory.createWidget(
-              props.widgetsStructure,
-              RenderModes.CANVAS,
-            )}
-        </Container>
-      </WDSThemeProvider>
+            renderAppsmithCanvas(props.widgetsStructure as WidgetProps)}
+        </Wrapper>
+      </CodeModeTooltip>
     );
+  };
+
+  try {
+    if (isAnvilLayout) {
+      return (
+        <StyledWDSThemeProvider theme={theme}>
+          {renderChildren()}
+        </StyledWDSThemeProvider>
+      );
+    }
+
+    return renderChildren();
   } catch (error) {
     log.error("Error rendering DSL", error);
     Sentry.captureException(error);
+
     return null;
   }
 };

@@ -7,17 +7,24 @@ import com.appsmith.external.exceptions.pluginExceptions.AppsmithPluginException
 import com.appsmith.external.exceptions.pluginExceptions.StaleConnectionException;
 import com.appsmith.external.helpers.DataTypeServiceUtils;
 import com.appsmith.external.helpers.MustacheHelper;
+import com.appsmith.external.helpers.SSHTunnelContext;
+import com.appsmith.external.helpers.SSHUtils;
+import com.appsmith.external.helpers.Stopwatch;
 import com.appsmith.external.models.ActionConfiguration;
 import com.appsmith.external.models.ActionExecutionRequest;
 import com.appsmith.external.models.ActionExecutionResult;
+import com.appsmith.external.models.ConnectionContext;
 import com.appsmith.external.models.DatasourceConfiguration;
 import com.appsmith.external.models.DatasourceStructure;
+import com.appsmith.external.models.DatasourceStructure.Template;
 import com.appsmith.external.models.DatasourceTestResult;
+import com.appsmith.external.models.Endpoint;
 import com.appsmith.external.models.MustacheBindingToken;
 import com.appsmith.external.models.Param;
 import com.appsmith.external.models.Property;
 import com.appsmith.external.models.PsParameterDTO;
 import com.appsmith.external.models.RequestParamDTO;
+import com.appsmith.external.models.SSHConnection;
 import com.appsmith.external.plugins.BasePlugin;
 import com.appsmith.external.plugins.PluginExecutor;
 import com.appsmith.external.plugins.SmartSubstitutionInterface;
@@ -28,6 +35,7 @@ import com.external.utils.MySqlDatasourceUtils;
 import com.external.utils.MySqlErrorUtils;
 import com.external.utils.QueryUtils;
 import io.r2dbc.pool.ConnectionPool;
+import io.r2dbc.pool.PoolMetrics;
 import io.r2dbc.spi.Connection;
 import io.r2dbc.spi.R2dbcBadGrammarException;
 import io.r2dbc.spi.R2dbcException;
@@ -43,7 +51,6 @@ import org.apache.commons.lang.ObjectUtils;
 import org.mariadb.r2dbc.message.server.ColumnDefinitionPacket;
 import org.pf4j.Extension;
 import org.pf4j.PluginWrapper;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -51,22 +58,15 @@ import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.pool.PoolShutdownException;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.AbstractMap.SimpleEntry;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.IntStream;
 
@@ -74,6 +74,8 @@ import static com.appsmith.external.constants.ActionConstants.ACTION_CONFIGURATI
 import static com.appsmith.external.helpers.PluginUtils.MATCH_QUOTED_WORDS_REGEX;
 import static com.appsmith.external.helpers.PluginUtils.getIdenticalColumns;
 import static com.appsmith.external.helpers.PluginUtils.getPSParamLabel;
+import static com.appsmith.external.helpers.SSHUtils.getConnectionContext;
+import static com.appsmith.external.helpers.SSHUtils.isSSHTunnelConnected;
 import static com.appsmith.external.helpers.SmartSubstitutionHelper.replaceQuestionMarkWithDollarIndex;
 import static com.external.plugins.exceptions.MySQLErrorMessages.CONNECTION_VALIDITY_CHECK_FAILED_ERROR_MSG;
 import static com.external.utils.MySqlDatasourceUtils.getNewConnectionPool;
@@ -83,6 +85,8 @@ import static com.external.utils.MySqlGetStructureUtils.getTemplates;
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.springframework.util.CollectionUtils.isEmpty;
 
 @Slf4j
 public class MySqlPlugin extends BasePlugin {
@@ -90,7 +94,10 @@ public class MySqlPlugin extends BasePlugin {
     private static final int VALIDATION_CHECK_TIMEOUT = 4; // seconds
     private static final String IS_KEY = "is";
     public static final String JSON_DB_TYPE = "JSON";
+    public static final int CONNECTION_METHOD_INDEX = 1;
     public static final MySqlErrorUtils mySqlErrorUtils = MySqlErrorUtils.getInstance();
+
+    public static final Long MYSQL_DEFAULT_PORT = 3306L;
 
     /**
      * Example output for COLUMNS_QUERY:
@@ -149,7 +156,8 @@ public class MySqlPlugin extends BasePlugin {
     }
 
     @Extension
-    public static class MySqlPluginExecutor implements PluginExecutor<ConnectionPool>, SmartSubstitutionInterface {
+    public static class MySqlPluginExecutor
+            implements PluginExecutor<ConnectionContext<ConnectionPool>>, SmartSubstitutionInterface {
 
         private static final int PREPARED_STATEMENT_INDEX = 0;
         private final Scheduler scheduler = Schedulers.boundedElastic();
@@ -160,7 +168,7 @@ public class MySqlPlugin extends BasePlugin {
          * supported by PreparedStatement. In case of PreparedStatement turned off, the action and datasource configurations are
          * prepared (binding replacement) using PluginExecutor.variableSubstitution
          *
-         * @param connection              : This is the connection that is established to the data source. This connection is according
+         * @param connectionContext       : This is the connection that is established to the data source. This connection is according
          *                                to the parameters in Datasource Configuration
          * @param executeActionDTO        : This is the data structure sent by the client during execute. This contains the params
          *                                which would be used for substitution
@@ -170,11 +178,12 @@ public class MySqlPlugin extends BasePlugin {
          */
         @Override
         public Mono<ActionExecutionResult> executeParameterized(
-                ConnectionPool connection,
+                ConnectionContext<ConnectionPool> connectionContext,
                 ExecuteActionDTO executeActionDTO,
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": executeParameterized() called for MySQL plugin.");
             final Map<String, Object> requestData = new HashMap<>();
 
             Boolean isPreparedStatement;
@@ -217,10 +226,10 @@ public class MySqlPlugin extends BasePlugin {
             // In case of non prepared statement, simply do binding replacement and execute
             if (FALSE.equals(isPreparedStatement)) {
                 prepareConfigurationsForExecution(executeActionDTO, actionConfiguration, datasourceConfiguration);
-                return executeCommon(connection, actionConfiguration, FALSE, null, null, requestData);
+                return executeCommon(connectionContext, actionConfiguration, FALSE, null, null, requestData);
             }
 
-            // This has to be executed as Prepared Statement
+            // This has to be executed as prepared statement
             // First extract all the bindings in order
             List<MustacheBindingToken> mustacheKeysInOrder = MustacheHelper.extractMustacheKeysInOrder(query);
             // Replace all the bindings with a ? as expected in a prepared statement.
@@ -228,16 +237,62 @@ public class MySqlPlugin extends BasePlugin {
             // Set the query with bindings extracted and replaced with '?' back in config
             actionConfiguration.setBody(updatedQuery);
             return executeCommon(
-                    connection, actionConfiguration, TRUE, mustacheKeysInOrder, executeActionDTO, requestData);
+                    connectionContext, actionConfiguration, TRUE, mustacheKeysInOrder, executeActionDTO, requestData);
+        }
+
+        @Override
+        public ActionConfiguration getSchemaPreviewActionConfig(Template queryTemplate, Boolean isMock) {
+            log.debug(Thread.currentThread().getName() + ": getSchemaPreviewActionConfig() called for MySQL plugin.");
+            ActionConfiguration actionConfig = new ActionConfiguration();
+            // Sets query body
+            actionConfig.setBody(queryTemplate.getBody());
+
+            // Sets prepared statement to false
+            Property preparedStatement = new Property();
+            preparedStatement.setValue(false);
+            List<Property> pluginSpecifiedTemplates = new ArrayList<Property>();
+            pluginSpecifiedTemplates.add(preparedStatement);
+            actionConfig.setPluginSpecifiedTemplates(pluginSpecifiedTemplates);
+            return actionConfig;
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName()
+                    + ": getEndpointIdentifierForRateLimit() called for MySQL plugin.");
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            SSHConnection sshProxy = datasourceConfiguration.getSshProxy();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_"
+                            + SSHUtils.getDBPortFromConfigOrDefault(datasourceConfiguration, MYSQL_DEFAULT_PORT);
+                }
+            }
+
+            if (SSHUtils.isSSHEnabled(datasourceConfiguration, CONNECTION_METHOD_INDEX)
+                    && sshProxy != null
+                    && !isBlank(sshProxy.getHost())) {
+                identifier += "_" + sshProxy.getHost() + "_"
+                        + SSHUtils.getSSHPortFromConfigOrDefault(datasourceConfiguration);
+            }
+            return Mono.just(identifier);
         }
 
         public Mono<ActionExecutionResult> executeCommon(
-                ConnectionPool connectionPool,
+                ConnectionContext<ConnectionPool> connectionContext,
                 ActionConfiguration actionConfiguration,
                 Boolean preparedStatement,
                 List<MustacheBindingToken> mustacheValuesInOrder,
                 ExecuteActionDTO executeActionDTO,
                 Map<String, Object> requestData) {
+            log.debug(Thread.currentThread().getName() + ": executeCommon() called for MySQL plugin.");
+            ConnectionPool connectionPool = connectionContext.getConnection();
+            SSHTunnelContext sshTunnelContext = connectionContext.getSshTunnelContext();
             String query = actionConfiguration.getBody();
 
             /**
@@ -263,6 +318,7 @@ public class MySqlPlugin extends BasePlugin {
             String transformedQuery = preparedStatement ? replaceQuestionMarkWithDollarIndex(finalQuery) : finalQuery;
             List<RequestParamDTO> requestParams =
                     List.of(new RequestParamDTO(ACTION_CONFIGURATION_BODY, transformedQuery, null, null, psParams));
+            Instant requestedAt = Instant.now();
 
             return Mono.usingWhen(
                             connectionPool.create(),
@@ -274,6 +330,8 @@ public class MySqlPlugin extends BasePlugin {
                                         .onErrorMap(
                                                 TimeoutException.class,
                                                 error -> new StaleConnectionException(error.getMessage()))
+                                        .map(isConnectionValid ->
+                                                isConnectionValid && isSSHTunnelConnected(sshTunnelContext))
                                         .flatMapMany(isValid -> {
                                             if (isValid) {
                                                 return createAndExecuteQueryFromConnection(
@@ -317,10 +375,28 @@ public class MySqlPlugin extends BasePlugin {
                                             });
                                 }
 
+                                // Adding connection pool logs in order to debug memroy leak issue
+                                // Refer: https://github.com/appsmithorg/appsmith/issues/34028
+                                Optional<PoolMetrics> poolMetricsOptional = connectionPool.getMetrics();
+                                if (poolMetricsOptional.isPresent()) {
+                                    PoolMetrics poolMetrics = poolMetricsOptional.get();
+                                    log.debug("Execute query: connection Pool Metrics: Acquired: "
+                                            + poolMetrics.acquiredSize() + ", Pending: "
+                                            + poolMetrics.pendingAcquireSize() + ", Allocated: "
+                                            + poolMetrics.allocatedSize() + ", idle: " + poolMetrics.idleSize()
+                                            + ", Max allocations: " + poolMetrics.getMaxAllocatedSize()
+                                            + ", Max pending acquire: " + poolMetrics.getMaxPendingAcquireSize());
+                                }
+
                                 return resultMono
                                         .map(res -> {
                                             ActionExecutionResult result = new ActionExecutionResult();
+                                            log.debug(Thread.currentThread().getName()
+                                                    + ": objectMapper.valueToTree from MySQL plugin.");
+                                            Stopwatch processStopwatch =
+                                                    new Stopwatch("MySQL Plugin objectMapper valueToTree");
                                             result.setBody(objectMapper.valueToTree(rowsList));
+                                            processStopwatch.stopAndLogTimeInMillis();
                                             result.setMessages(populateHintMessages(columnsList));
                                             result.setIsExecutionSuccess(true);
                                             log.debug("In the MySqlPlugin, got action execution result");
@@ -363,10 +439,16 @@ public class MySqlPlugin extends BasePlugin {
                                         })
                                         // Now set the request in the result to be returned to the server
                                         .map(actionExecutionResult -> {
+                                            log.debug(
+                                                    Thread.currentThread().getName()
+                                                            + ": setting the request in actionExecutionResult from MySQL plugin.");
                                             ActionExecutionRequest request = new ActionExecutionRequest();
                                             request.setQuery(finalQuery);
                                             request.setProperties(requestData);
                                             request.setRequestParams(requestParams);
+                                            if (request.getRequestedAt() == null) {
+                                                request.setRequestedAt(requestedAt);
+                                            }
                                             ActionExecutionResult result = actionExecutionResult;
                                             result.setRequest(request);
 
@@ -402,7 +484,7 @@ public class MySqlPlugin extends BasePlugin {
                 return Flux.from(connectionStatement.execute());
             }
 
-            log.debug("Query : {}", query);
+            log.debug("Query : " + query);
 
             List<Map.Entry<String, String>> parameters = new ArrayList<>();
             try {
@@ -426,7 +508,9 @@ public class MySqlPlugin extends BasePlugin {
         }
 
         @Override
-        public Mono<DatasourceTestResult> testDatasource(ConnectionPool pool) {
+        public Mono<DatasourceTestResult> testDatasource(ConnectionContext<ConnectionPool> connectionContext) {
+            log.debug(Thread.currentThread().getName() + ": testDatasource() called for MySQL plugin.");
+            ConnectionPool pool = connectionContext.getConnection();
             return Mono.just(pool)
                     .flatMap(p -> p.create())
                     .flatMap(conn -> Mono.from(conn.close()))
@@ -484,7 +568,7 @@ public class MySqlPlugin extends BasePlugin {
             Set<String> messages = new HashSet<>();
 
             List<String> identicalColumns = getIdenticalColumns(columnNames);
-            if (!CollectionUtils.isEmpty(identicalColumns)) {
+            if (!isEmpty(identicalColumns)) {
                 messages.add("Your MySQL query result may not have all the columns because duplicate column names "
                         + "were found for the column(s): "
                         + String.join(", ", identicalColumns) + ". You may use the "
@@ -522,7 +606,7 @@ public class MySqlPlugin extends BasePlugin {
                     columnValue = DateTimeFormatter.ISO_TIME.format(row.get(columnName, LocalTime.class));
                 } else if (java.time.Year.class.toString().equalsIgnoreCase(javaTypeName) && columnValue != null) {
                     columnValue = row.get(columnName, LocalDate.class).getYear();
-                } else if (JSON_DB_TYPE.equals(sqlColumnType)) {
+                } else if (columnValue != null && JSON_DB_TYPE.equals(sqlColumnType)) {
                     /**
                      * In case of MySQL the JSON DB type is stored as a binary object in the DB. This is different from
                      * MariaDB where it is stored as a text.Since we currently use MariaDB driver for MySQL plugin as
@@ -565,7 +649,7 @@ public class MySqlPlugin extends BasePlugin {
 
         @Override
         public Mono<ActionExecutionResult> execute(
-                ConnectionPool connection,
+                ConnectionContext connectionContext,
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
             // Unused function
@@ -576,23 +660,58 @@ public class MySqlPlugin extends BasePlugin {
         }
 
         @Override
-        public Mono<ConnectionPool> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
-            ConnectionPool pool = null;
-            try {
-                pool = getNewConnectionPool(datasourceConfiguration);
-            } catch (AppsmithPluginException e) {
-                return Mono.error(e);
-            }
-            return Mono.just(pool);
+        public Mono<ConnectionContext<ConnectionPool>> datasourceCreate(
+                DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for MySQL plugin.");
+            return Mono.just(datasourceConfiguration).flatMap(ignore -> {
+                ConnectionContext<ConnectionPool> connectionContext;
+                try {
+                    connectionContext = getConnectionContext(
+                            datasourceConfiguration, CONNECTION_METHOD_INDEX, MYSQL_DEFAULT_PORT, ConnectionPool.class);
+                    ConnectionPool pool = getNewConnectionPool(datasourceConfiguration, connectionContext);
+                    connectionContext.setConnection(pool);
+                    return Mono.just(connectionContext);
+                } catch (AppsmithPluginException e) {
+                    return Mono.error(e);
+                }
+            });
         }
 
         @Override
-        public void datasourceDestroy(ConnectionPool connectionPool) {
+        public void datasourceDestroy(ConnectionContext<ConnectionPool> connectionContext) {
+            log.debug(Thread.currentThread().getName() + ": datasourceDestroy() called for MySQL plugin.");
+            Mono.just(connectionContext)
+                    .flatMap(ignore -> {
+                        SSHTunnelContext sshTunnelContext = connectionContext.getSshTunnelContext();
+                        if (sshTunnelContext != null) {
+                            try {
+                                /**
+                                 * IMO, order of these operations is important here (not sure), this particular order
+                                 * seems safe. e.g. if the thread is stopped first then there may be some issues with
+                                 * closing the server socket or disconnecting client.
+                                 */
+                                sshTunnelContext.getServerSocket().close();
+                                sshTunnelContext.getSshClient().disconnect();
+                                sshTunnelContext.getThread().interrupt(); // Gracefully interrupt the thread
+                            } catch (IOException e) {
+                                log.error("Failed to destroy SSH tunnel context: " + e.getMessage());
+                            }
+                        }
+                        return Mono.empty();
+                    })
+                    .subscribeOn(scheduler)
+                    .subscribe();
+
+            /**
+             * This database connection destroy can be scheduled independently of the previous SSH tunnel destroy
+             * because they are not related to each other. They operate as independent units.
+             */
+            ConnectionPool connectionPool = connectionContext.getConnection();
             if (connectionPool != null) {
                 connectionPool
                         .disposeLater()
                         .onErrorResume(exception -> {
-                            log.debug("In datasourceDestroy function error mode.", exception);
+                            log.debug("Could not destroy MySQL connection pool", exception);
                             return Mono.empty();
                         })
                         .subscribeOn(scheduler)
@@ -602,24 +721,43 @@ public class MySqlPlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for MySQL plugin.");
             return MySqlDatasourceUtils.validateDatasource(datasourceConfiguration);
         }
 
         @Override
         public Mono<DatasourceStructure> getStructure(
-                ConnectionPool connectionPool, DatasourceConfiguration datasourceConfiguration) {
+                ConnectionContext<ConnectionPool> connectionContext, DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": getStructure() called for MySQL plugin.");
             final DatasourceStructure structure = new DatasourceStructure();
-            final Map<String, DatasourceStructure.Table> tablesByName = new LinkedHashMap<>();
+            final Map<String, DatasourceStructure.Table> tablesByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             final Map<String, DatasourceStructure.Key> keyRegistry = new HashMap<>();
 
+            ConnectionPool connectionPool = connectionContext.getConnection();
+            SSHTunnelContext sshTunnelContext = connectionContext.getSshTunnelContext();
             return Mono.usingWhen(
                             connectionPool.create(),
-                            connection -> Mono.from(connection.validate(ValidationDepth.REMOTE))
+                            connection -> Mono.from(connection.validate(ValidationDepth.LOCAL))
                                     .timeout(Duration.ofSeconds(VALIDATION_CHECK_TIMEOUT))
                                     .onErrorMap(
                                             TimeoutException.class,
                                             error -> new StaleConnectionException(error.getMessage()))
+                                    .map(isConnectionValid ->
+                                            isConnectionValid && isSSHTunnelConnected(sshTunnelContext))
                                     .flatMapMany(isValid -> {
+                                        // Adding connection pool logs in order to debug memroy leak issue
+                                        // Refer: https://github.com/appsmithorg/appsmith/issues/34028
+                                        Optional<PoolMetrics> poolMetricsOptional = connectionPool.getMetrics();
+                                        if (poolMetricsOptional.isPresent()) {
+                                            PoolMetrics poolMetrics = poolMetricsOptional.get();
+                                            log.debug("Get structure: connection Pool Metrics: Acquired: "
+                                                    + poolMetrics.acquiredSize() + ", Pending: "
+                                                    + poolMetrics.pendingAcquireSize() + ", Allocated: "
+                                                    + poolMetrics.allocatedSize() + ", idle: " + poolMetrics.idleSize()
+                                                    + ", Max allocations: " + poolMetrics.getMaxAllocatedSize()
+                                                    + ", Max pending acquire: "
+                                                    + poolMetrics.getMaxPendingAcquireSize());
+                                        }
                                         if (isValid) {
                                             return connection
                                                     .createStatement(COLUMNS_QUERY)
@@ -649,6 +787,8 @@ public class MySqlPlugin extends BasePlugin {
                                     })
                                     .collectList()
                                     .map(list -> {
+                                        log.debug(
+                                                Thread.currentThread().getName() + ": getTemplates from MySQL plugin.");
                                         /* Get templates for each table and put those in. */
                                         getTemplates(tablesByName);
                                         structure.setTables(new ArrayList<>(tablesByName.values()));

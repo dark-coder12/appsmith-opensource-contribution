@@ -31,9 +31,10 @@ export class DeployMode {
   private _backtoHome =
     ".t--app-viewer-navigation-header .t--app-viewer-back-to-apps-button";
   private _homeAppsmithImage = "a.t--appsmith-logo";
-  public envInfoModal = `[data-testid="t--env-info-modal"]`;
-  public envInfoModalDismissCheckbox = `[data-testid="t--env-info-dismiss-checkbox"]`;
-  public envInfoModalDeployButton = `[data-testid="t--env-info-modal-deploy-button"]`;
+  public _deployPageWidgets =
+    ".bp3-heading, section.canvas [data-testid=t--app-viewer-page]:not(:empty)";
+  public _appViewPageName = `div.t--app-viewer-application-name`;
+  public homePagaHeader = `[data-testid="t--appsmith-page-header"]`;
 
   //refering PublishtheApp from command.js
   public DeployApp(
@@ -41,38 +42,14 @@ export class DeployMode {
     toCheckFailureToast = true,
     toValidateSavedState = true,
     addDebugFlag = true,
-    assertEnvInfoModal?: "present" | "absent",
-    dismissModal = false,
   ) {
-    //cy.intercept("POST", "/api/v1/applications/publish/*").as("publishAppli");
-
-    // Wait before publish
-    this.agHelper.Sleep(3000); //wait for elements settle!
+    this.agHelper.Sleep();
     toValidateSavedState && this.agHelper.AssertAutoSave();
-    // Stubbing window.open to open in the same tab
     this.assertHelper.AssertDocumentReady();
     this.StubbingDeployPage(addDebugFlag);
     this.agHelper.ClickButton("Deploy");
-    if (!!assertEnvInfoModal && assertEnvInfoModal === "present") {
-      this.agHelper.WaitUntilEleAppear(this.envInfoModal);
-      this.agHelper.AssertElementExist(this.envInfoModal);
-      if (dismissModal) {
-        this.agHelper.CheckUncheck(this.envInfoModalDismissCheckbox);
-      }
-    } else {
-      this.agHelper.AssertElementAbsence(this.envInfoModal);
-    }
-    this.agHelper.GetNClickIfPresent(this.envInfoModalDeployButton);
-    this.agHelper.AssertElementAbsence(this.locator._btnSpinner, 10000); //to make sure we have started navigation from Edit page
-    //cy.get("@windowDeployStub").should("be.calledOnce");
+    this.agHelper.AssertElementAbsence(this.locator._btnSpinner, 10000);
     this.assertHelper.AssertDocumentReady();
-    cy.log("Pagename: " + localStorage.getItem("PageName"));
-
-    //Below url check throwing error - hence commenting!
-    // cy.wait("@publishApp")
-    //   .its("request.url")
-    //   .should("not.contain", "edit");
-    //cy.wait('@publishApp').wait('@publishApp') //waitng for 2 calls to complete
 
     this.agHelper.WaitUntilEleAppear(
       eleToCheckInDeployPage ?? this.locator._backToEditor,
@@ -82,13 +59,13 @@ export class DeployMode {
       this.agHelper.AssertElementAbsence(
         this.locator._specificToast("has failed"),
       ); //Validating bug - 14141 + 14252
-    this.agHelper.Sleep(2000); //for Depoy page to settle!
-    // });
+    this.agHelper.AssertElementVisibility(this._deployPageWidgets);
+    this.agHelper.Sleep(2000); //for view page widgets to load
   }
 
   // Stubbing window.open to open in the same tab
-  public StubbingWindow() {
-    cy.window({ timeout: 60000 }).then((window: any) => {
+  public StubbingWindow(timeout = 60000) {
+    cy.window({ timeout }).then((window: any) => {
       cy.stub(window, "open")
         .as("windowStub")
         .callsFake((url) => {
@@ -126,8 +103,7 @@ export class DeployMode {
               : ""
           }`,
           "_self",
-        ); // Call the original window.open function
-        //cy.wrap(originalOpen).as("windowDeployStub");  //this is not working! to check later
+        );
         return null;
       };
     });
@@ -139,34 +115,47 @@ export class DeployMode {
     networkCall: string,
   ) {
     this.StubbingWindow();
-    this.agHelper.GetNClick(selector, 0, false, 4000); //timeout new url to settle loading
+    this.agHelper.GetNClick(selector, 0, false, 0);
+    this.agHelper.Sleep(4000);
     cy.get("@windowStub").should("be.calledOnce");
     cy.url().should("contain", expectedUrl);
-    this.assertHelper.AssertDocumentReady();
+    this.agHelper.Sleep(2000);
     cy.window({ timeout: 60000 }).then((win) => {
       win.history.back();
     });
-    this.assertHelper.AssertNetworkStatus("@" + networkCall);
+    this.assertHelper.AssertNetworkResponseData("@" + networkCall);
     this.assertHelper.AssertDocumentReady();
   }
 
-  public NavigateBacktoEditor() {
+  public NavigateBacktoEditor(toastToCheck = "") {
     this.assertHelper.AssertDocumentReady();
     this.agHelper.GetNClick(this.locator._backToEditor, 0, true);
-    this.agHelper.Sleep(2000);
+    this.agHelper.Sleep();
     localStorage.setItem("inDeployedMode", "false");
+    if (toastToCheck) {
+      this.agHelper.ValidateToastMessage(toastToCheck);
+    }
     this.agHelper.AssertElementAbsence(
-      this.locator._specificToast("There was an unexpcted error"),
-    ); //Assert that is not error toast in Edit mode when navigating back from Deploy mode
-    this.assertHelper.AssertDocumentReady();
+      this.locator._specificToast("There was an unexpected error"),
+    );
+    this.agHelper.AssertElementAbsence(
+      this.locator._specificToast(
+        "Internal server error while processing request",
+      ),
+    );
+    this.agHelper.AssertElementAbsence(
+      this.locator._specificToast("Cannot read properties of undefined"),
+    );
+    this.assertHelper.AssertNetworkResponseData("@getConsolidatedData");
+
     this.assertHelper.AssertNetworkStatus("@getWorkspace");
-    this.agHelper.AssertElementVisibility(this.locator._editPage); //Assert if canvas is visible after Navigating back!
+    this.assertHelper.AssertDocumentReady();
+    this.agHelper.AssertElementVisibility(this.locator._editPage);
   }
 
   public NavigateToHomeDirectly() {
     this.agHelper.GetNClick(this._backtoHome);
-    this.agHelper.Sleep(2000);
-    this.agHelper.AssertElementVisibility(this._homeAppsmithImage);
+    this.agHelper.WaitUntilEleAppear(this.homePagaHeader);
   }
 
   public EnterJSONInputValue(
@@ -204,7 +193,7 @@ export class DeployMode {
     cy.get(this.locator._selectOptionValue(dropdownOption)).click({
       force: true,
     });
-    this.agHelper.Sleep(); //for selected value to reflect!
+    this.agHelper.Sleep();
   }
 
   public SelectJsonFormMultiSelect(
@@ -240,7 +229,6 @@ export class DeployMode {
         );
       });
     }
-    // //closing multiselect dropdown
     cy.get("body").type("{esc}");
   }
 }

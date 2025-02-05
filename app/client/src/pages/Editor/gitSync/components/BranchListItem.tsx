@@ -4,11 +4,16 @@ import { BranchListItemContainer } from "./BranchListItemContainer";
 import DefaultTag from "./DefaultTag";
 import { useHover } from "../hooks";
 import BranchMoreMenu from "./BranchMoreMenu";
-import { Tooltip, Text, Spinner } from "design-system";
+import { Tooltip, Text, Spinner } from "@appsmith/ads";
 import { isEllipsisActive } from "utils/helpers";
 import { useSelector } from "react-redux";
 import { getBranchSwitchingDetails } from "selectors/gitSyncSelectors";
 import styled from "styled-components";
+import { importRemixIcon } from "@appsmith/ads-old";
+
+const ProtectedIcon = importRemixIcon(
+  async () => import("remixicon-react/ShieldKeyholeLineIcon"),
+);
 
 const OptionsContainer = styled.div`
   display: flex;
@@ -22,9 +27,11 @@ export function BranchListItem({
   branch,
   className,
   isDefault,
+  isProtected,
   onClick,
   selected,
-  shouldScrollIntoView,
+  shouldScrollIntoView, // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }: any) {
   const itemRef = React.useRef<HTMLDivElement>(null);
   const [hover] = useHover(itemRef);
@@ -33,6 +40,7 @@ export function BranchListItem({
   const { isSwitchingBranch, switchingToBranch } = useSelector(
     getBranchSwitchingDetails,
   );
+
   useEffect(() => {
     if (itemRef.current && shouldScrollIntoView) {
       scrollIntoView(itemRef.current, {
@@ -53,6 +61,11 @@ export function BranchListItem({
       ref={itemRef}
       selected={selected}
     >
+      {isProtected && (
+        <ProtectedIcon
+          style={{ marginRight: 8, width: 14, height: 14, marginTop: 1 }}
+        />
+      )}
       <Tooltip
         content={branch}
         isDisabled={!isEllipsisActive(document.getElementById(branch))}

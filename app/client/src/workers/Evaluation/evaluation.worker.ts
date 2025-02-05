@@ -1,7 +1,11 @@
 // Workers do not have access to log.error
 /* eslint-disable no-console */
 import type { EvalWorkerASyncRequest, EvalWorkerSyncRequest } from "./types";
-import { syncHandlerMap, asyncHandlerMap } from "./handlers";
+import {
+  syncHandlerMap,
+  asyncHandlerMap,
+  transmissionErrorHandlerMap,
+} from "./handlers";
 import type { TMessage } from "utils/MessageUtil";
 import { MessageType } from "utils/MessageUtil";
 import { WorkerMessenger } from "./fns/utils/Messenger";
@@ -11,34 +15,60 @@ function syncRequestMessageListener(
   e: MessageEvent<TMessage<EvalWorkerSyncRequest>>,
 ) {
   const { messageType } = e.data;
+
   if (messageType !== MessageType.REQUEST) return;
-  const startTime = performance.now();
+
+  const startTime = Date.now();
   const { body, messageId } = e.data;
   const { method } = body;
+
   if (!method) return;
+
   const messageHandler = syncHandlerMap[method];
+
   if (typeof messageHandler !== "function") return;
+
   const responseData = messageHandler(body);
-  if (!responseData) return;
-  const endTime = performance.now();
-  WorkerMessenger.respond(messageId, responseData, endTime - startTime);
+  const transmissionErrorHandler = transmissionErrorHandlerMap[method];
+  const endTime = Date.now();
+
+  WorkerMessenger.respond(
+    messageId,
+    responseData,
+    startTime,
+    endTime,
+    transmissionErrorHandler,
+  );
 }
 
 async function asyncRequestMessageListener(
   e: MessageEvent<TMessage<EvalWorkerASyncRequest>>,
 ) {
   const { messageType } = e.data;
+
   if (messageType !== MessageType.REQUEST) return;
-  const start = performance.now();
+
+  const start = Date.now();
   const { body, messageId } = e.data;
   const { method } = body;
+
   if (!method) return;
+
   const messageHandler = asyncHandlerMap[method];
+
   if (typeof messageHandler !== "function") return;
+
   const data = await messageHandler(body);
-  if (!data) return;
-  const end = performance.now();
-  WorkerMessenger.respond(messageId, data, end - start);
+  const end = Date.now();
+  const transmissionErrorHandler = transmissionErrorHandlerMap[method];
+
+  WorkerMessenger.respond(
+    messageId,
+    data,
+    start,
+    end,
+    transmissionErrorHandler,
+  );
 }
 
 self.addEventListener("message", syncRequestMessageListener);

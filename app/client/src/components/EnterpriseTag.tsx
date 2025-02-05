@@ -1,7 +1,7 @@
 import React from "react";
-import type { TagSizes } from "design-system";
-import { Tag } from "design-system";
-import { ENTERPRISE_TAG, createMessage } from "@appsmith/constants/messages";
+import type { TagSizes } from "@appsmith/ads";
+import { Tag } from "@appsmith/ads";
+import { ENTERPRISE_TAG, createMessage } from "ee/constants/messages";
 
 const EnterpriseTag = ({
   classes = "",
@@ -15,7 +15,7 @@ const EnterpriseTag = ({
       className={`enterprise-tag ${classes}`}
       data-testid="t--enterprise-tag"
       isClosable={false}
-      // kind="special"
+      kind="special"
       {...(size && { size })}
     >
       {createMessage(ENTERPRISE_TAG)}

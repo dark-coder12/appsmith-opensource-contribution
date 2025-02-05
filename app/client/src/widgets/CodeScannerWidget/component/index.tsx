@@ -25,17 +25,17 @@ import {
   ButtonVariantTypes,
 } from "components/constants";
 import { ScannerLayout } from "../constants";
-import type { ThemeProp } from "widgets/constants";
+import type { ThemeProp } from "WidgetProvider/constants";
 import { usePageVisibility } from "react-page-visibility";
-import { importSvg } from "design-system-old";
+import { importSvg } from "@appsmith/ads-old";
 import { getVideoConstraints } from "widgets/utils";
 import { isMobile } from "react-device-detect";
 
 const CameraOfflineIcon = importSvg(
-  () => import("assets/icons/widget/camera/camera-offline.svg"),
+  async () => import("assets/icons/widget/camera/camera-offline.svg"),
 );
 const FlipImageIcon = importSvg(
-  () => import("assets/icons/widget/codeScanner/flip.svg"),
+  async () => import("assets/icons/widget/codeScanner/flip.svg"),
 );
 
 const CodeScannerGlobalStyles = createGlobalStyle<{
@@ -156,6 +156,7 @@ export interface DisabledOverlayerProps {
 
 const CodeScannerContainer = styled.div`
   height: 100%;
+  width: 100%;
 `;
 
 const DisabledOverlayer = styled.div<DisabledOverlayerProps>`
@@ -286,6 +287,7 @@ export interface DeviceMenuProps {
 
 function DeviceMenu(props: DeviceMenuProps) {
   const { items, onItemClick } = props;
+
   return (
     <Menu>
       {items.map((item: MediaDeviceInfo) => {
@@ -357,6 +359,7 @@ function ControlPanel(props: ControlPanelProps) {
     };
 
     document.addEventListener("click", handleClickOutside, false);
+
     return () => {
       document.removeEventListener("click", handleClickOutside, false);
     };
@@ -470,6 +473,7 @@ function CodeScannerComponent(props: CodeScannerComponentProps) {
           "",
           mediaDeviceInfo.deviceId,
         );
+
         setVideoConstraints(constraints);
       }
     },
@@ -480,6 +484,7 @@ function CodeScannerComponent(props: CodeScannerComponentProps) {
     if (typeof error === "string") {
       setError(error);
     }
+
     setError((error as DOMException).message);
   }, []);
 
@@ -488,6 +493,8 @@ function CodeScannerComponent(props: CodeScannerComponentProps) {
   };
 
   const renderComponent = () => {
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleOnResult = (err: any, result: any) => {
       if (!!result) {
         const codeData = result.text;
@@ -625,6 +632,7 @@ function CodeScannerComponent(props: CodeScannerComponentProps) {
     </CodeScannerContainer>
   );
 }
+
 export interface CodeScannerComponentProps extends ComponentProps {
   label: string;
   isDisabled: boolean;

@@ -1,4 +1,4 @@
-import { PluginPackageName, PluginName } from "entities/Action";
+import { PluginName, PluginPackageName } from "entities/Plugin";
 
 export const QUERY_BODY_FIELDS = [
   "actionConfiguration.body",
@@ -13,6 +13,11 @@ export const SQL_DATASOURCES: Array<string> = [
   PluginName.SNOWFLAKE,
   PluginName.ARANGODB,
   PluginName.REDSHIFT,
+];
+
+export const DATASOURCES_ALLOWED_FOR_PREVIEW_MODE: Array<string> = [
+  PluginName.POSTGRES,
+  PluginName.MY_SQL,
 ];
 
 export const PLUGIN_PACKAGE_DBS = [

@@ -1,11 +1,17 @@
+import EditorNavigation, {
+  EntityType,
+} from "../../../../support/Pages/EditorNavigation";
+
 const commonlocators = require("../../../../locators/commonlocators.json");
 import {
   agHelper,
   deployMode,
   entityExplorer,
 } from "../../../../support/Objects/ObjectsCore";
+import PageList from "../../../../support/Pages/PageList";
+import { EntityItems } from "../../../../support/Pages/AssertHelper";
 
-describe("Page Load tests", () => {
+describe("Page Load tests", { tags: ["@tag.IDE", "@tag.PropertyPane"] }, () => {
   afterEach(() => {
     agHelper.SaveLocalStorageCache();
   });
@@ -16,8 +22,10 @@ describe("Page Load tests", () => {
 
   before(() => {
     agHelper.AddDsl("PageLoadDsl");
-    cy.CreatePage();
-    cy.get("h2").contains("Drag and drop a widget here");
+    PageList.AddNewPage();
+    cy.get("h2").contains(
+      Cypress.env("MESSAGES").EMPTY_CANVAS_HINTS.DRAG_DROP_WIDGET_HINT(),
+    );
   });
 
   it("1. Published page loads correctly", () => {
@@ -43,7 +51,7 @@ describe("Page Load tests", () => {
       "This is Page 2",
     );
     // Test after reload
-    agHelper.RefreshPage("viewPage");
+    agHelper.RefreshPage("getConsolidatedData");
     // Assert active page tab
     cy.get(".t--page-switch-tab")
       .contains("Page2")
@@ -81,6 +89,7 @@ describe("Page Load tests", () => {
     entityExplorer.ActionContextMenuByEntityName({
       entityNameinLeftSidebar: "Page1",
       action: "Hide",
+      entityType: EntityItems.Page,
     });
     deployMode.DeployApp();
     // Assert active page DSL
@@ -90,7 +99,7 @@ describe("Page Load tests", () => {
     );
     cy.contains("Page2").should("not.exist");
     deployMode.NavigateBacktoEditor();
-    entityExplorer.SelectEntityByName("Page2");
+    EditorNavigation.SelectEntityByName("Page2", EntityType.Page);
     deployMode.DeployApp();
     // Assert active page DSL
     cy.get(commonlocators.headingTextStyle).should(

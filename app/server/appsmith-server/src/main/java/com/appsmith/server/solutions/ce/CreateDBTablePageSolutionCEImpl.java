@@ -1,8 +1,10 @@
 package com.appsmith.server.solutions.ce;
 
+import com.appsmith.external.constants.ActionCreationSourceTypeEnum;
 import com.appsmith.external.constants.AnalyticsEvents;
 import com.appsmith.external.converters.HttpMethodConverter;
 import com.appsmith.external.converters.ISOStringToInstantConverter;
+import com.appsmith.external.git.constants.ce.RefType;
 import com.appsmith.external.helpers.AppsmithBeanUtils;
 import com.appsmith.external.models.ActionConfiguration;
 import com.appsmith.external.models.ActionDTO;
@@ -12,11 +14,13 @@ import com.appsmith.external.models.DatasourceStructure;
 import com.appsmith.external.models.DatasourceStructure.Column;
 import com.appsmith.external.models.DatasourceStructure.PrimaryKey;
 import com.appsmith.external.models.DatasourceStructure.Table;
-import com.appsmith.external.models.DefaultResources;
 import com.appsmith.external.models.Property;
+import com.appsmith.server.applications.base.ApplicationService;
 import com.appsmith.server.constants.Assets;
 import com.appsmith.server.constants.Entity;
 import com.appsmith.server.constants.FieldName;
+import com.appsmith.server.datasources.base.DatasourceService;
+import com.appsmith.server.datasourcestorages.base.DatasourceStorageService;
 import com.appsmith.server.domains.Layout;
 import com.appsmith.server.domains.NewAction;
 import com.appsmith.server.domains.NewPage;
@@ -28,16 +32,13 @@ import com.appsmith.server.dtos.PageDTO;
 import com.appsmith.server.exceptions.AppsmithError;
 import com.appsmith.server.exceptions.AppsmithException;
 import com.appsmith.server.helpers.PluginExecutorHelper;
-import com.appsmith.server.helpers.ResponseUtils;
+import com.appsmith.server.layouts.UpdateLayoutService;
 import com.appsmith.server.migrations.JsonSchemaMigration;
+import com.appsmith.server.newpages.base.NewPageService;
+import com.appsmith.server.plugins.base.PluginService;
 import com.appsmith.server.services.AnalyticsService;
 import com.appsmith.server.services.ApplicationPageService;
-import com.appsmith.server.services.ApplicationService;
-import com.appsmith.server.services.DatasourceService;
-import com.appsmith.server.services.DatasourceStorageService;
 import com.appsmith.server.services.LayoutActionService;
-import com.appsmith.server.services.NewPageService;
-import com.appsmith.server.services.PluginService;
 import com.appsmith.server.services.SessionUserService;
 import com.appsmith.server.solutions.ApplicationPermission;
 import com.appsmith.server.solutions.DatasourcePermission;
@@ -57,6 +58,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StreamUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -80,18 +82,19 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
     private final DatasourceStorageService datasourceStorageService;
     private final NewPageService newPageService;
     private final LayoutActionService layoutActionService;
+    private final UpdateLayoutService updateLayoutService;
     private final ApplicationPageService applicationPageService;
     private final ApplicationService applicationService;
     private final PluginService pluginService;
     private final AnalyticsService analyticsService;
     private final SessionUserService sessionUserService;
-    private final ResponseUtils responseUtils;
     private final PluginExecutorHelper pluginExecutorHelper;
     private final DatasourcePermission datasourcePermission;
     private final ApplicationPermission applicationPermission;
     private final PagePermission pagePermission;
     private final DatasourceStructureSolution datasourceStructureSolution;
     private final EnvironmentPermission environmentPermission;
+    private final JsonSchemaMigration jsonSchemaMigration;
 
     private static final String FILE_PATH = "CRUD-DB-Table-Template-Application.json";
 
@@ -158,7 +161,7 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
             .create();
 
     public Mono<CRUDPageResponseDTO> createPageFromDBTable(
-            String defaultPageId,
+            String branchedPageId,
             CRUDPageResourceDTO pageResourceDTO,
             String environmentId,
             String branchName,
@@ -174,23 +177,23 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                                 environmentPermission.getExecutePermission());
                     })
                     .flatMap(trueEnvironmentId ->
-                            createPageFromDBTable(defaultPageId, pageResourceDTO, trueEnvironmentId, branchName));
+                            createPageFromDBTable(branchedPageId, pageResourceDTO, trueEnvironmentId));
         }
 
-        return createPageFromDBTable(defaultPageId, pageResourceDTO, environmentId, branchName);
+        return createPageFromDBTable(branchedPageId, pageResourceDTO, environmentId);
     }
 
     /**
      * This function will clone template page along with the actions. DatasourceStructure is used to map the
      * templateColumns with the datasource under consideration
      *
-     * @param defaultPageId   for which the template page needs to be replicated
+     * @param branchedPageId  for which the template page needs to be replicated
      * @param pageResourceDTO
      * @param environmentId
      * @return generated pageDTO from the template resource
      */
     public Mono<CRUDPageResponseDTO> createPageFromDBTable(
-            String defaultPageId, CRUDPageResourceDTO pageResourceDTO, String environmentId, String branchName) {
+            String branchedPageId, CRUDPageResourceDTO pageResourceDTO, String environmentId) {
 
         /*
            1. Fetch page from the application
@@ -214,7 +217,7 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
 
         final String tableName = pageResourceDTO.getTableName();
         final String datasourceId = pageResourceDTO.getDatasourceId();
-        final String defaultApplicationId = pageResourceDTO.getApplicationId();
+        final String branchedApplicationId = pageResourceDTO.getApplicationId();
         final String searchColumn = pageResourceDTO.getSearchColumn();
         final Set<String> columns = pageResourceDTO.getColumns();
         final Map<String, String> pluginSpecificParams = pageResourceDTO.getPluginSpecificParams();
@@ -223,10 +226,10 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
         Map<String, String> mappedColumnsAndTableName = new HashMap<>();
 
         // Fetch branched applicationId if connected to git
-        Mono<NewPage> pageMono = getOrCreatePage(defaultApplicationId, defaultPageId, tableName, branchName);
+        Mono<NewPage> pageMono = getOrCreatePage(branchedApplicationId, branchedPageId, tableName);
 
         Mono<DatasourceStorage> datasourceStorageMono = datasourceService
-                .findById(datasourceId, datasourcePermission.getEditPermission())
+                .findById(datasourceId, datasourcePermission.getActionCreatePermission())
                 .switchIfEmpty(Mono.error(
                         new AppsmithException(AppsmithError.ACL_NO_RESOURCE_FOUND, FieldName.DATASOURCE, datasourceId)))
                 .flatMap(datasource -> datasourceStorageService.findByDatasourceAndEnvironmentIdForExecution(
@@ -235,21 +238,8 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                 .switchIfEmpty(Mono.error(
                         new AppsmithException(AppsmithError.INVALID_DATASOURCE, FieldName.DATASOURCE, datasourceId)));
 
-        return datasourceStorageMono
-                .zipWhen(datasourceStorage -> Mono.zip(
-                        pageMono,
-                        pluginService.findById(datasourceStorage.getPluginId()),
-                        datasourceStructureSolution.getStructure(datasourceStorage, false)))
-                .flatMap(tuple -> {
-                    DatasourceStorage datasourceStorage = tuple.getT1();
-                    NewPage page = tuple.getT2().getT1();
-                    Plugin plugin = tuple.getT2().getT2();
-                    DatasourceStructure datasourceStructure = tuple.getT2().getT3();
-
-                    final String layoutId =
-                            page.getUnpublishedPage().getLayouts().get(0).getId();
-                    final String savedPageId = page.getId();
-
+        // Should this be subscribed on a scheduler?
+        Mono<ApplicationJson> applicationJsonMono = Mono.fromCallable(() -> {
                     ApplicationJson applicationJson = new ApplicationJson();
                     try {
                         AppsmithBeanUtils.copyNestedNonNullProperties(
@@ -257,6 +247,29 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                     } catch (IOException e) {
                         log.error(e.getMessage());
                     }
+
+                    return applicationJson;
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(applicationJson -> jsonSchemaMigration.migrateApplicationJsonToLatestSchema(
+                        applicationJson, null, null, RefType.branch));
+
+        return datasourceStorageMono
+                .zipWhen(datasourceStorage -> Mono.zip(
+                        pageMono,
+                        pluginService.findById(datasourceStorage.getPluginId()),
+                        datasourceStructureSolution.getStructure(datasourceStorage, false),
+                        applicationJsonMono))
+                .flatMap(tuple -> {
+                    DatasourceStorage datasourceStorage = tuple.getT1();
+                    NewPage page = tuple.getT2().getT1();
+                    Plugin plugin = tuple.getT2().getT2();
+                    DatasourceStructure datasourceStructure = tuple.getT2().getT3();
+                    ApplicationJson applicationJson = tuple.getT2().getT4();
+
+                    final String layoutId =
+                            page.getUnpublishedPage().getLayouts().get(0).getId();
+                    final String savedPageId = page.getId();
                     List<NewPage> pageList = applicationJson.getPageList();
 
                     if (pageList.isEmpty()) {
@@ -384,27 +397,32 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                             .filter(newAction -> StringUtils.equalsIgnoreCase(
                                     newAction.getUnpublishedAction().getPageId(),
                                     plugin.getGenerateCRUDPageComponent()))
-                            .peek(newAction -> newAction.setDefaultResources(page.getDefaultResources()))
+                            .peek(newAction -> {
+                                newAction.setRefType(page.getRefType());
+                                newAction.setRefName(page.getRefName());
+                            })
                             .collect(Collectors.toList());
 
-                    // Extract S3 bucket name from template application and map to users bucket. Bucket name is stored
-                    // at
-                    // index 1 in plugin specified templates
+                    List<ActionConfiguration> templateUnpublishedActionConfigList = templateActionList.stream()
+                            .map(NewAction::getUnpublishedAction)
+                            .map(ActionDTO::getActionConfiguration)
+                            .collect(Collectors.toList());
 
-                    if (Entity.S3_PLUGIN_PACKAGE_NAME.equals(plugin.getPackageName())
-                            && !CollectionUtils.isEmpty(templateActionList)) {
-                        final Map<String, Object> formData = templateActionList
-                                .get(0)
-                                .getUnpublishedAction()
-                                .getActionConfiguration()
-                                .getFormData();
-                        mappedColumnsAndTableName.put(
-                                (String) ((Map<?, ?>) formData.get("bucket")).get("data"), tableName);
-                    }
+                    /**
+                     * Any plugin specific update to the template queries should be defined by overriding the
+                     * `sanitizeGenerateCRUDPageTemplateInfo` method in the respective plugin. In the default case no
+                     * changes are made to the template. e.g. please check the sanitizeGenerateCRUDPageTemplateInfo
+                     * method defined in AmazonS3Plugin.java .
+                     */
+                    Mono<Void> sanitizeTemplateInfoMono = pluginExecutorHelper
+                            .getPluginExecutorFromPackageName(plugin.getPackageName())
+                            .flatMap(pluginExecutor -> pluginExecutor.sanitizeGenerateCRUDPageTemplateInfo(
+                                    templateUnpublishedActionConfigList, mappedColumnsAndTableName, tableName));
 
                     log.debug("Going to update layout for page {} and layout {}", savedPageId, layoutId);
-                    return layoutActionService
-                            .updateLayout(savedPageId, page.getApplicationId(), layoutId, layout)
+                    return sanitizeTemplateInfoMono
+                            .then(updateLayoutService.updateLayout(
+                                    savedPageId, page.getApplicationId(), layoutId, layout))
                             .then(Mono.zip(
                                     Mono.just(datasourceStorage),
                                     Mono.just(templateActionList),
@@ -442,27 +460,18 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                                         crudPage.setPage(pageDTO);
                                         createSuccessMessageAndSetAsset(plugin, crudPage);
                                         return sendGenerateCRUDPageAnalyticsEvent(
-                                                        crudPage, datasourceStorage, plugin.getName())
-                                                .map(res -> {
-                                                    PageDTO sanitisedResponse =
-                                                            responseUtils.updatePageDTOWithDefaultResources(
-                                                                    res.getPage());
-                                                    crudPage.setPage(sanitisedResponse);
-                                                    return crudPage;
-                                                });
+                                                crudPage, datasourceStorage, plugin.getName());
                                     }));
                 });
     }
 
     /**
-     * @param defaultApplicationId application from which the page should be fetched
-     * @param defaultPageId        default page for which equivalent branched page is going to be fetched
+     * @param branchedApplicationId application from which the page should be fetched
+     * @param branchedPageId        default page for which equivalent branched page is going to be fetched
      * @param tableName            if page is not present then name of the page name should include tableName
-     * @param branchName           branch of which the page needs to be fetched
      * @return NewPage if not present already with the incremental suffix number to avoid duplicate application names
      */
-    private Mono<NewPage> getOrCreatePage(
-            String defaultApplicationId, String defaultPageId, String tableName, String branchName) {
+    private Mono<NewPage> getOrCreatePage(String branchedApplicationId, String branchedPageId, String tableName) {
 
         /*
             1. Check if the page is already available
@@ -471,15 +480,14 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
         */
 
         log.debug(
-                "Fetching page from application {}, defaultPageId {}, branchName {}",
-                defaultApplicationId,
-                defaultPageId,
-                branchName);
-        if (defaultPageId != null) {
+                "Fetching page from branchedApplicationId {}, branchedPageId {}",
+                branchedApplicationId,
+                branchedPageId);
+        if (branchedPageId != null) {
             return newPageService
-                    .findByBranchNameAndDefaultPageId(branchName, defaultPageId, pagePermission.getEditPermission())
+                    .findById(branchedPageId, pagePermission.getEditPermission())
                     .switchIfEmpty(Mono.error(
-                            new AppsmithException(AppsmithError.NO_RESOURCE_FOUND, FieldName.PAGE, defaultPageId)))
+                            new AppsmithException(AppsmithError.NO_RESOURCE_FOUND, FieldName.PAGE, branchedPageId)))
                     .map(newPage -> {
                         Layout layout =
                                 newPage.getUnpublishedPage().getLayouts().get(0);
@@ -493,35 +501,38 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
         }
 
         return applicationService
-                .findBranchedApplicationId(branchName, defaultApplicationId, applicationPermission.getEditPermission())
-                .flatMapMany(childApplicationId -> newPageService.findByApplicationId(
-                        childApplicationId, pagePermission.getEditPermission(), false))
-                .collectList()
-                .flatMap(pages -> {
-                    // Avoid duplicating page names
-                    String applicationId = pages.get(0).getApplicationId();
-                    String pageName = WordUtils.capitalize(tableName);
-                    long maxCount = 0L;
-                    for (PageDTO pageDTO : pages) {
-                        if (pageDTO.getName().matches("^" + Pattern.quote(pageName) + "\\d*$")) {
-                            long count = 1L;
-                            String pageCount = pageDTO.getName().substring(pageName.length());
-                            if (!pageCount.isEmpty()) {
-                                count = Long.parseLong(pageCount);
+                .findById(branchedApplicationId, applicationPermission.getPageCreatePermission())
+                .switchIfEmpty(Mono.error(new AppsmithException(
+                        AppsmithError.NO_RESOURCE_FOUND, FieldName.APPLICATION, branchedApplicationId)))
+                .flatMap(branchedApplication -> newPageService
+                        .findByApplicationId(branchedApplicationId, pagePermission.getEditPermission(), false)
+                        .collectList()
+                        .flatMap(pages -> {
+                            // Avoid duplicating page names
+                            String applicationId = pages.get(0).getApplicationId();
+                            String pageName = WordUtils.capitalize(tableName);
+                            long maxCount = 0L;
+                            for (PageDTO pageDTO : pages) {
+                                if (pageDTO.getName().matches("^" + Pattern.quote(pageName) + "\\d*$")) {
+                                    long count = 1L;
+                                    String pageCount = pageDTO.getName().substring(pageName.length());
+                                    if (!pageCount.isEmpty()) {
+                                        count = Long.parseLong(pageCount);
+                                    }
+                                    maxCount = maxCount <= count ? count + 1 : maxCount;
+                                }
                             }
-                            maxCount = maxCount <= count ? count + 1 : maxCount;
-                        }
-                    }
-                    pageName = maxCount != 0 ? pageName + maxCount : pageName;
-                    PageDTO page = new PageDTO();
-                    page.setApplicationId(applicationId);
-                    page.setName(pageName);
-                    DefaultResources defaultResources = new DefaultResources();
-                    defaultResources.setBranchName(branchName);
-                    defaultResources.setApplicationId(defaultApplicationId);
-                    page.setDefaultResources(defaultResources);
-                    return applicationPageService.createPage(page);
-                })
+                            pageName = maxCount != 0 ? pageName + maxCount : pageName;
+                            PageDTO page = new PageDTO();
+                            page.setApplicationId(applicationId);
+                            page.setName(pageName);
+                            if (branchedApplication.getGitArtifactMetadata() != null) {
+                                page.setRefName(branchedApplication
+                                        .getGitArtifactMetadata()
+                                        .getRefName());
+                            }
+                            return applicationPageService.createPage(page);
+                        }))
                 .flatMap(pageDTO -> newPageService.findById(pageDTO.getId(), pagePermission.getEditPermission()));
     }
 
@@ -562,8 +573,7 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
         final String jsonContent = StreamUtils.copyToString(
                 new DefaultResourceLoader().getResource(filePath).getInputStream(), Charset.defaultCharset());
 
-        ApplicationJson applicationJson = gson.fromJson(jsonContent, ApplicationJson.class);
-        return JsonSchemaMigration.migrateApplicationToLatestSchema(applicationJson);
+        return gson.fromJson(jsonContent, ApplicationJson.class);
     }
 
     /**
@@ -600,10 +610,15 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                     templateAction.getUnpublishedAction().getActionConfiguration();
             actionDTO.setPluginId(datasourceStorage.getPluginId());
             actionDTO.setId(null);
+            actionDTO.setBaseId(null);
             actionDTO.setDatasource(datasourceService.createDatasourceFromDatasourceStorage(datasourceStorage));
             actionDTO.setPageId(pageId);
             actionDTO.setName(templateAction.getUnpublishedAction().getName());
-            actionDTO.setDefaultResources(templateAction.getDefaultResources());
+            actionDTO.setRefType(templateAction.getRefType());
+            actionDTO.setRefName(templateAction.getRefName());
+
+            // Indicates that source of action creation is generate-crud-page
+            actionDTO.setSource(ActionCreationSourceTypeEnum.GENERATE_PAGE);
 
             String actionBody = templateActionConfiguration.getBody();
             actionDTO.setActionConfiguration(templateActionConfiguration);
@@ -1137,8 +1152,7 @@ public class CreateDBTablePageSolutionCEImpl implements CreateDBTablePageSolutio
                         "pageName", page.getName(),
                         "pluginName", pluginName,
                         "datasourceId", datasourceStorage.getDatasourceId(),
-                        "organizationId", datasourceStorage.getWorkspaceId(),
-                        "orgId", datasourceStorage.getWorkspaceId());
+                        "workspaceId", datasourceStorage.getWorkspaceId());
                 return analyticsService
                         .sendEvent(AnalyticsEvents.GENERATE_CRUD_PAGE.getEventName(), currentUser.getUsername(), data)
                         .thenReturn(crudPage);

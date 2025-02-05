@@ -9,11 +9,13 @@ import type {
 } from "WidgetQueryGenerators/types";
 import { removeSpecialChars } from "utils/helpers";
 import { DatasourceConnectionMode } from "entities/Datasource";
+import type { DatasourceStorage } from "entities/Datasource";
 
 enum COMMAND_TYPES {
   "FIND" = "FETCH_MANY",
   "INSERT" = "INSERT_ONE",
   "UPDATE" = "UPDATE_ONE",
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   "COUNT" = "FETCH_MANY",
 }
 const COMMON_INITIAL_VALUE_KEYS = [
@@ -47,6 +49,7 @@ export default abstract class GSheets extends BaseQueryGenerator {
       },
     };
   }
+
   private static buildFind(
     widgetConfig: WidgetQueryGenerationConfig,
     formConfig: WidgetQueryGenerationFormConfig,
@@ -54,6 +57,8 @@ export default abstract class GSheets extends BaseQueryGenerator {
     const { select } = widgetConfig;
 
     if (select && formConfig.sheetName) {
+      // TODO: Fix this the next time the file is edited
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const queryPayload: any = {
         type: QUERY_TYPE.SELECT,
         name: `Find_${removeSpecialChars(formConfig.sheetName)}`,
@@ -235,10 +240,14 @@ export default abstract class GSheets extends BaseQueryGenerator {
     ];
     const scrubedOutInitialValues = allowedInitialValueKeys
       .filter((key) => initialValues[key as keyof GSheetsFormData])
-      .reduce((acc, key) => {
-        acc[key] = initialValues[key as keyof GSheetsFormData];
-        return acc;
-      }, {} as Record<string, object>);
+      .reduce(
+        (acc, key) => {
+          acc[key] = initialValues[key as keyof GSheetsFormData];
+
+          return acc;
+        },
+        {} as Record<string, object>,
+      );
 
     const { formData, ...rest } = builtValues;
 
@@ -268,6 +277,7 @@ export default abstract class GSheets extends BaseQueryGenerator {
         ),
       );
     }
+
     if (
       widgetConfig.update &&
       formConfig.connectionMode === DatasourceConnectionMode.READ_WRITE
@@ -280,6 +290,7 @@ export default abstract class GSheets extends BaseQueryGenerator {
         ),
       );
     }
+
     if (
       widgetConfig.create &&
       formConfig.connectionMode === DatasourceConnectionMode.READ_WRITE
@@ -304,6 +315,16 @@ export default abstract class GSheets extends BaseQueryGenerator {
     }
 
     return configs.filter((val) => !!val);
+  }
+
+  static getConnectionMode(
+    datasourceConfiguration: DatasourceStorage["datasourceConfiguration"],
+  ) {
+    return datasourceConfiguration?.authentication?.scopeString?.includes(
+      "spreadsheets.readonly",
+    )
+      ? DatasourceConnectionMode.READ_ONLY
+      : DatasourceConnectionMode.READ_WRITE;
   }
 
   static getTotalRecordExpression(binding: string) {

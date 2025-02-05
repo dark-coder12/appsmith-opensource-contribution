@@ -1,4 +1,4 @@
-import type { ConfigTree, DataTree } from "entities/DataTree/dataTreeFactory";
+import type { ConfigTree, DataTree } from "entities/DataTree/dataTreeTypes";
 import { isEmpty } from "lodash";
 import type { EvalContext } from "workers/Evaluation/evaluate";
 import { getEvaluationContext } from "./utils/getEvaluationContext";
@@ -35,6 +35,7 @@ class GlobalData {
           },
         );
       }
+
       return this.globalDataWithFunctions;
     } else {
       if (isEmpty(this.globalDataWithoutFunctions)) {
@@ -47,6 +48,7 @@ class GlobalData {
           },
         );
       }
+
       return this.globalDataWithoutFunctions;
     }
   }

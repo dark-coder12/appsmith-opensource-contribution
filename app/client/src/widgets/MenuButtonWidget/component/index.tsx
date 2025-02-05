@@ -33,7 +33,7 @@ import type {
   MenuItem,
   PopoverContentProps,
 } from "../constants";
-import type { ThemeProp } from "widgets/constants";
+import type { ThemeProp } from "WidgetProvider/constants";
 
 const PopoverStyles = createGlobalStyle<{
   parentWidth: number;
@@ -42,8 +42,8 @@ const PopoverStyles = createGlobalStyle<{
   borderRadius: string;
 }>`
   .menu-button-popover, .${BlueprintClasses.MINIMAL}.menu-button-popover.${
-  Classes.POPOVER2
-} {
+    Classes.POPOVER2
+  } {
     background: none;
     box-shadow: 0 6px 20px 0px rgba(0, 0, 0, 0.15) !important;
     margin-top: 8px !important;
@@ -105,8 +105,8 @@ const BaseButton = styled(Button)<ThemeProp & BaseStyleProps>`
         getCustomBackgroundColor(buttonVariant, buttonColor) !== "none"
           ? getCustomBackgroundColor(buttonVariant, buttonColor)
           : buttonVariant === ButtonVariantTypes.PRIMARY
-          ? theme.colors.button.primary.primary.bgColor
-          : "none"
+            ? theme.colors.button.primary.primary.bgColor
+            : "none"
       } !important;
 
     &:hover, &:active, &:focus {
@@ -114,10 +114,10 @@ const BaseButton = styled(Button)<ThemeProp & BaseStyleProps>`
         getCustomHoverColor(theme, buttonVariant, buttonColor) !== "none"
           ? getCustomHoverColor(theme, buttonVariant, buttonColor)
           : buttonVariant === ButtonVariantTypes.SECONDARY
-          ? theme.colors.button.primary.secondary.hoverColor
-          : buttonVariant === ButtonVariantTypes.TERTIARY
-          ? theme.colors.button.primary.tertiary.hoverColor
-          : theme.colors.button.primary.primary.hoverColor
+            ? theme.colors.button.primary.secondary.hoverColor
+            : buttonVariant === ButtonVariantTypes.TERTIARY
+              ? theme.colors.button.primary.tertiary.hoverColor
+              : theme.colors.button.primary.primary.hoverColor
       } !important;
     }
 
@@ -143,8 +143,8 @@ const BaseButton = styled(Button)<ThemeProp & BaseStyleProps>`
       getCustomBorderColor(buttonVariant, buttonColor) !== "none"
         ? `1px solid ${getCustomBorderColor(buttonVariant, buttonColor)}`
         : buttonVariant === ButtonVariantTypes.SECONDARY
-        ? `1px solid ${theme.colors.button.primary.secondary.borderColor}`
-        : "none"
+          ? `1px solid ${theme.colors.button.primary.secondary.borderColor}`
+          : "none"
     } !important;
 
     & > span {
@@ -158,11 +158,11 @@ const BaseButton = styled(Button)<ThemeProp & BaseStyleProps>`
         buttonVariant === ButtonVariantTypes.PRIMARY
           ? getComplementaryGrayscaleColor(buttonColor)
           : getCustomBackgroundColor(
-              ButtonVariantTypes.PRIMARY,
-              buttonColor,
-            ) !== "none"
-          ? getCustomBackgroundColor(ButtonVariantTypes.PRIMARY, buttonColor)
-          : `${theme.colors.button.primary.secondary.textColor}`
+                ButtonVariantTypes.PRIMARY,
+                buttonColor,
+              ) !== "none"
+            ? getCustomBackgroundColor(ButtonVariantTypes.PRIMARY, buttonColor)
+            : `${theme.colors.button.primary.secondary.textColor}`
       } !important;
     }
   `}

@@ -1,8 +1,8 @@
 import type React from "react";
-import type { ReduxAction } from "@appsmith/constants/ReduxActionConstants";
+import type { ReduxAction } from "actions/ReduxActionTypes";
 import type { Dispatch } from "react";
-import type { RadioOptionProps } from "pages/Settings/FormGroup/Radio";
-import type { CalloutKind, SelectOptionProps } from "design-system";
+import type { RadioOptionProps } from "pages/AdminSettings/FormGroup/Radio";
+import type { CalloutKind, SelectOptionProps } from "@appsmith/ads";
 
 type ControlType = {
   [K in keyof ControlPropsType]: {
@@ -11,11 +11,12 @@ type ControlType = {
   };
 }[keyof ControlPropsType];
 
-type ControlPropsType = {
+interface ControlPropsType {
   [SettingTypes.RADIO]: RadioOptionProps;
   [SettingTypes.TEXTINPUT]: unknown;
   [SettingTypes.TOGGLE]: unknown;
   [SettingTypes.LINK]: unknown;
+  [SettingTypes.CALLOUT]: unknown;
   [SettingTypes.BUTTON]: unknown;
   [SettingTypes.GROUP]: unknown;
   [SettingTypes.TEXT]: unknown;
@@ -24,13 +25,14 @@ type ControlPropsType = {
   [SettingTypes.TAGINPUT]: unknown;
   [SettingTypes.DROPDOWN]: unknown;
   [SettingTypes.CHECKBOX]: unknown;
-};
+}
 
 export enum SettingTypes {
   RADIO = "RADIO",
   TEXTINPUT = "TEXTINPUT",
   TOGGLE = "TOGGLE",
   LINK = "LINK",
+  CALLOUT = "CALLOUT",
   BUTTON = "BUTTON",
   GROUP = "GROUP",
   TEXT = "TEXT",
@@ -53,7 +55,11 @@ export type Setting = ControlType & {
   id: string;
   category?: string;
   controlSubType?: SettingSubtype;
-  format?: (value: string) => any;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  format?: (value: any) => any;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   parse?: (value: any) => any;
   helpText?: string;
   label?: React.ReactNode;
@@ -61,29 +67,42 @@ export type Setting = ControlType & {
   placeholder?: string;
   validate?: (value: string, setting?: Setting) => string | void;
   url?: string;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   children?: any;
   subCategory?: string;
-  value?: string;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  value?: any;
   text?: string;
   textSuffix?: React.ReactElement;
   action?: (
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dispatch: Dispatch<ReduxAction<any>>,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     settings?: Record<string, any>,
   ) => void;
   sortOrder?: number;
   subText?: string;
   toggleText?: (value: boolean) => string;
-  isVisible?: (values: Record<string, any>) => boolean;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  isVisible?: (values?: Record<string, any>) => boolean;
   isHidden?: boolean;
-  isDisabled?: (values: Record<string, any>) => boolean;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  isDisabled?: (values?: Record<string, any>) => boolean;
   calloutType?: CalloutKind;
   advanced?: Setting[];
   isRequired?: boolean;
   formName?: string;
   fieldName?: string;
   dropdownOptions?: Partial<SelectOptionProps>[];
-  needsUpgrade?: boolean;
+  isFeatureEnabled?: boolean;
   tooltip?: string;
+  isEnterprise?: boolean;
 };
 
 export interface Category {
@@ -95,14 +114,13 @@ export interface Category {
   children?: Category[];
   icon?: string;
   categoryType: string;
-  needsUpgrade?: boolean;
   isEnterprise?: boolean;
+  isFeatureEnabled?: boolean;
 }
 
 export const SettingCategories = {
   GENERAL: "general",
   EMAIL: "email",
-  GOOGLE_MAPS: "google-maps",
   VERSION: "version",
   ADVANCED: "advanced",
   AUTHENTICATION: "authentication",
@@ -113,6 +131,9 @@ export const SettingCategories = {
   ACCESS_CONTROL: "access-control",
   PROVISIONING: "provisioning",
   BRANDING: "branding",
+  SAML_AUTH: "saml-auth",
+  OIDC_AUTH: "oidc-auth",
+  DEVELOPER_SETTINGS: "developer-settings",
 };
 
 export enum CategoryType {
@@ -121,7 +142,7 @@ export enum CategoryType {
   OTHER = "other",
 }
 
-export type AdminConfigType = {
+export interface AdminConfigType {
   type: string;
   controlType: SettingTypes;
   title: string;
@@ -133,7 +154,7 @@ export type AdminConfigType = {
   isConnected?: boolean;
   needsRefresh?: boolean;
   icon?: string;
-  needsUpgrade?: boolean;
   categoryType: CategoryType;
   isEnterprise?: boolean;
-};
+  isFeatureEnabled?: boolean;
+}

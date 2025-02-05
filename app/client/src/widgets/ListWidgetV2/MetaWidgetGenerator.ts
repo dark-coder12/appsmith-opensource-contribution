@@ -1,5 +1,4 @@
 import hash from "object-hash";
-import { klona } from "klona";
 import { difference, omit, set, get, isEmpty, isString, isNil } from "lodash";
 import type { VirtualizerOptions } from "@tanstack/virtual-core";
 import {
@@ -12,7 +11,7 @@ import isEqual from "fast-deep-equal/es6";
 
 import Queue from "./Queue";
 import { extractTillNestedListWidget } from "./widget/helper";
-import type { FlattenedWidgetProps } from "widgets/constants";
+import type { FlattenedWidgetProps } from "WidgetProvider/constants";
 import { generateReactKey } from "utils/generators";
 import {
   GridDefaults,
@@ -27,14 +26,15 @@ import type {
   MetaWidgetCacheProps,
   MetaWidgets,
 } from "./widget";
-import { DEFAULT_TEMPLATE_BOTTOM_ROW, DynamicPathType } from "./widget";
+import { DEFAULT_TEMPLATE_HEIGHT, DynamicPathType } from "./widget";
 import type { WidgetProps } from "widgets/BaseWidget";
 import type { DynamicPath } from "utils/DynamicBindingUtils";
 import {
   combineDynamicBindings,
   getDynamicBindings,
 } from "utils/DynamicBindingUtils";
-import WidgetFactory from "utils/WidgetFactory";
+import WidgetFactory from "WidgetProvider/factory";
+import { klonaRegularWithTelemetry } from "utils/helpers";
 
 type TemplateWidgets =
   ListWidgetProps<WidgetProps>["flattenedChildCanvasWidgets"];
@@ -50,30 +50,30 @@ type ReferenceCache = Record<
   | undefined
 >;
 
-type UpdateSiblingsOptions = {
+interface UpdateSiblingsOptions {
   templateWidgetId: string;
   originalMetaWidgetId: string;
   metaWidget: MetaWidget;
-};
+}
 
-type GenerateDefaultCacheOptions = {
+interface GenerateDefaultCacheOptions {
   lookupId: string;
   templateWidget: FlattenedWidgetProps;
   generateEntityDefinition: boolean;
-};
+}
 
-export type HookOptions = {
+export interface HookOptions {
   childMetaWidgets: MetaWidgets;
   rowReferences: Record<string, string | undefined>;
-};
+}
 
 type Hook = (metaWidget: MetaWidget, options: HookOptions) => void;
 
-type Hooks = {
+interface Hooks {
   afterMetaWidgetGenerate?: Hook;
-};
+}
 
-export type GeneratorOptions = {
+export interface GeneratorOptions {
   containerParentId: string;
   containerWidgetId: string;
   currTemplateWidgets: TemplateWidgets;
@@ -90,11 +90,11 @@ export type GeneratorOptions = {
   primaryKeys?: string[];
   scrollElement: HTMLDivElement | null;
   serverSidePagination: boolean;
-  templateBottomRow: number;
+  templateHeight: number;
   widgetName: string;
-};
+}
 
-export type ConstructorProps = {
+export interface ConstructorProps {
   getWidgetCache: () => MetaWidgetCache | undefined;
   getWidgetReferenceCache: () => ReferenceCache | undefined;
   infiniteScroll: boolean;
@@ -106,51 +106,51 @@ export type ConstructorProps = {
   renderMode: string;
   setWidgetCache: (data: MetaWidgetCache) => void;
   setWidgetReferenceCache: (data: ReferenceCache) => void;
-};
+}
 
-type TemplateWidgetStatus = {
+interface TemplateWidgetStatus {
   added: Set<string>;
   updated: Set<string>;
   removed: Set<string>;
   unchanged: Set<string>;
-};
+}
 
-type CacheDataOption = {
+interface CacheDataOption {
   keepMetaWidgetData: boolean;
   key: string;
-};
+}
 
-type GenerateMetaWidgetProps = {
+interface GenerateMetaWidgetProps {
   rowIndex: number;
   templateWidgetId: string;
   parentId: string;
   options?: CacheDataOption;
-};
+}
 
-type GenerateMetaWidgetChildrenProps = {
+interface GenerateMetaWidgetChildrenProps {
   rowIndex: number;
   parentId: string;
   templateWidget: FlattenedWidgetProps;
   options?: CacheDataOption;
-};
+}
 
-type GeneratedMetaWidget = {
+interface GeneratedMetaWidget {
   metaWidgetId?: string;
   metaWidgetName?: string;
   childMetaWidgets?: MetaWidgets;
   metaWidget?: MetaWidget;
-};
+}
 
-type CachedRows = {
+interface CachedRows {
   prev: Set<string>;
   curr: Set<string>;
-};
+}
 
-type LevelProperty = {
+interface LevelProperty {
   currentIndex: number;
   currentItem: string;
   currentView: Record<string, string>;
-};
+}
 
 type VirtualizerInstance = Virtualizer<HTMLDivElement, HTMLDivElement>;
 type VirtualizerOptionsProps = VirtualizerOptions<
@@ -158,15 +158,15 @@ type VirtualizerOptionsProps = VirtualizerOptions<
   HTMLDivElement
 >;
 
-type AddDynamicPathsPropertiesOptions = {
+interface AddDynamicPathsPropertiesOptions {
   excludedPaths?: string[];
-};
+}
 
-type ViewMetaWidget = {
+interface ViewMetaWidget {
   metaWidgetId: string;
   isClonedItem: boolean;
   templateWidgetId: string;
-};
+}
 
 type Siblings = Record<string, string[]>;
 
@@ -247,7 +247,7 @@ class MetaWidgetGenerator {
   private serverSidePagination: GeneratorOptions["serverSidePagination"];
   private setWidgetCache: ConstructorProps["setWidgetCache"];
   private setWidgetReferenceCache: ConstructorProps["setWidgetReferenceCache"];
-  private templateBottomRow: GeneratorOptions["templateBottomRow"];
+  private templateHeight: GeneratorOptions["templateHeight"];
   private templateWidgetCandidates: Set<string>;
   private templateWidgetStatus: TemplateWidgetStatus;
   private virtualizer?: VirtualizerInstance;
@@ -287,7 +287,7 @@ class MetaWidgetGenerator {
     this.scrollElement = null;
     this.setWidgetCache = props.setWidgetCache;
     this.setWidgetReferenceCache = props.setWidgetReferenceCache;
-    this.templateBottomRow = DEFAULT_TEMPLATE_BOTTOM_ROW;
+    this.templateHeight = DEFAULT_TEMPLATE_HEIGHT;
     this.templateWidgetCandidates = new Set();
     this.templateWidgetStatus = {
       added: new Set(),
@@ -310,7 +310,7 @@ class MetaWidgetGenerator {
     this.pageSize = options.pageSize;
     this.scrollElement = options.scrollElement;
     this.serverSidePagination = options.serverSidePagination;
-    this.templateBottomRow = options.templateBottomRow;
+    this.templateHeight = options.templateHeight;
     this.widgetName = options.widgetName;
     this.hooks = options.hooks;
     this.currTemplateWidgets = extractTillNestedListWidget(
@@ -334,7 +334,11 @@ class MetaWidgetGenerator {
     }
 
     // Maybe don't deep-clone for perf?
-    const prevOptions = klona(this.prevOptions);
+    const prevOptions = klonaRegularWithTelemetry(
+      this.prevOptions,
+      "MetaWidgetGenerator.withOptions",
+    );
+
     this.prevOptions = options;
 
     this._didUpdate(options, prevOptions);
@@ -372,6 +376,7 @@ class MetaWidgetGenerator {
     const containerParentWidget =
       this?.currTemplateWidgets?.[this.containerParentId];
     let metaWidgets: MetaWidgets = {};
+
     this.siblings = {};
 
     if (
@@ -452,6 +457,7 @@ class MetaWidgetGenerator {
         ...cachedMetaWidgets,
         ...childMetaWidgets,
       };
+
       if (metaWidget) {
         cachedMetaWidgets[metaWidget.widgetId] = metaWidget;
       }
@@ -469,6 +475,7 @@ class MetaWidgetGenerator {
 
     this.cachedItemKeys.prev.forEach((key) => {
       const metaCacheProps = this.getRowCache(key) ?? {};
+
       Object.values(metaCacheProps).forEach((cache) => {
         prevCachedMetaWidgetIds.push(cache.metaWidgetId);
       });
@@ -479,6 +486,7 @@ class MetaWidgetGenerator {
 
     this.cachedItemKeys.curr.forEach((key) => {
       const metaCacheProps = this.getRowCache(key) ?? {};
+
       Object.values(metaCacheProps).forEach((cache) => {
         currCachedMetaWidgetIds.push(cache.metaWidgetId);
       });
@@ -541,8 +549,11 @@ class MetaWidgetGenerator {
       return { metaWidgetId: undefined, metaWidgetName: undefined };
 
     const key = options ? options.key : this.getPrimaryKey(rowIndex);
+    const metaWidget = klonaRegularWithTelemetry(
+      templateWidget,
+      "MetaWidgetGenerator.generateMetaWidgetRecursively",
+    ) as MetaWidget;
 
-    const metaWidget = klona(templateWidget) as MetaWidget;
     const metaCacheProps = this.getRowTemplateCache(
       key,
       templateWidgetId,
@@ -663,6 +674,7 @@ class MetaWidgetGenerator {
 
       if (metaWidgetId) {
         children.push(metaWidgetId);
+
         if (metaWidget) {
           metaWidgets[metaWidgetId] = metaWidget;
         }
@@ -914,8 +926,8 @@ class MetaWidgetGenerator {
               }
               return newObj;
               })(${metaContainerName}.data, ${JSON.stringify(
-            BLACKLISTED_ENTITY_DEFINITION_IN_LEVEL_DATA[type],
-          )} )
+                BLACKLISTED_ENTITY_DEFINITION_IN_LEVEL_DATA[type],
+              )} )
           }}`,
         },
       },
@@ -1352,6 +1364,7 @@ class MetaWidgetGenerator {
       ? rowCache[this.containerWidgetId]?.rowIndex
       : rowCache[this.containerWidgetId]?.prevRowIndex ??
         rowCache[this.containerWidgetId]?.rowIndex;
+
     return rowIndex;
   };
 
@@ -1451,7 +1464,7 @@ class MetaWidgetGenerator {
       prevOptions?.infiniteScroll !== this.infiniteScroll ||
       prevOptions?.itemSpacing !== this.itemSpacing ||
       prevOptions?.serverSidePagination !== this.serverSidePagination ||
-      prevOptions?.templateBottomRow !== this.templateBottomRow ||
+      prevOptions?.templateHeight !== this.templateHeight ||
       !isEqual(this.currTemplateWidgets, this.prevTemplateWidgets) ||
       !isEqual(this.prevPrimaryKeys, this.primaryKeys)
     );
@@ -1494,9 +1507,17 @@ class MetaWidgetGenerator {
   ) => {
     const { metaWidget, originalMetaWidgetId, templateWidgetId } = options;
     const viewIndex = this.getViewIndex(rowIndex);
-    const referenceCache = klona(this.getWidgetReferenceCache());
+    const referenceCache = klonaRegularWithTelemetry(
+      this.getWidgetReferenceCache(),
+      "MetaWidgetGenerator.updateSiblings.getWidgetReferenceCache",
+    );
+
     const currentCache = referenceCache?.[templateWidgetId];
-    const siblings = klona(currentCache?.siblings || new Set<string>());
+    const siblings = klonaRegularWithTelemetry(
+      currentCache?.siblings || new Set<string>(),
+      "MetaWidgetGenerator.updateSiblings.siblings",
+    );
+
     const isCandidateListWidget =
       this.nestedViewIndex === 0 || !this.nestedViewIndex;
     const isCandidateWidget = isCandidateListWidget && viewIndex === 0;
@@ -1537,6 +1558,7 @@ class MetaWidgetGenerator {
     if (this.serverSidePagination && typeof this.pageSize === "number") {
       const startIndex = 0;
       const endIndex = this.pageSize;
+
       return arr.slice(startIndex, endIndex);
     }
 
@@ -1546,6 +1568,7 @@ class MetaWidgetGenerator {
       if (this.virtualizer) {
         const virtualItems = this.virtualizer.getVirtualItems();
         const endIndex = virtualItems[virtualItems.length - 1]?.index ?? 0;
+
         return arr.slice(startIndex, endIndex + 1);
       }
 
@@ -1554,6 +1577,7 @@ class MetaWidgetGenerator {
 
     if (typeof this.pageNo === "number" && typeof this.pageSize === "number") {
       const endIndex = startIndex + this.pageSize;
+
       return arr.slice(startIndex, endIndex);
     }
 
@@ -1564,6 +1588,7 @@ class MetaWidgetGenerator {
     if (this.infiniteScroll) {
       if (this.virtualizer) {
         const items = this.virtualizer.getVirtualItems();
+
         return items[0]?.index ?? 0;
       }
     } else if (
@@ -1602,6 +1627,7 @@ class MetaWidgetGenerator {
       !options.keepMetaWidgetData
     ) {
       const { templateWidgetId, templateWidgetName, type } = templateCache;
+
       return {
         ...templateCache,
         metaWidgetId: templateWidgetId,
@@ -1620,6 +1646,7 @@ class MetaWidgetGenerator {
 
     templateWidgetIds.forEach((templateWidgetId) => {
       const rowTemplateCache = this.getRowTemplateCache(key, templateWidgetId);
+
       references[templateWidgetId] = rowTemplateCache?.metaWidgetId;
     });
 
@@ -1665,12 +1692,13 @@ class MetaWidgetGenerator {
           // "Input1: { value: List1_Input1_1.value, text: List1_Input1_1.text }"
           dependantBinding[templateWidgetName] = `
             ${templateWidgetName}: {${
-            dependantMetaWidget?.entityDefinition || ""
-          }}
+              dependantMetaWidget?.entityDefinition || ""
+            }}
           `;
         }
       });
     }
+
     return dependantBinding;
   };
 
@@ -1695,6 +1723,7 @@ class MetaWidgetGenerator {
     const containers = { ids: [] as string[], names: [] as string[] };
     const startIndex = this.getStartIndex();
     const currentViewData = this.getCurrentViewData();
+
     currentViewData.forEach((_datum, viewIndex) => {
       const rowIndex = startIndex + viewIndex;
       const key = this.getPrimaryKey(rowIndex);
@@ -1702,6 +1731,7 @@ class MetaWidgetGenerator {
         key,
         this.containerWidgetId,
       );
+
       if (!containers.ids) {
         containers.ids = [];
         containers.names = [];
@@ -1738,6 +1768,7 @@ class MetaWidgetGenerator {
     const templateWidgetIds = Object.keys(this.currTemplateWidgets || {});
 
     const metaWidgets: MetaWidgetCacheProps[] = [];
+
     templateWidgetIds.forEach((templateWidgetId) => {
       const rowTemplateCache = this.getRowTemplateCache(
         key,
@@ -1784,6 +1815,7 @@ class MetaWidgetGenerator {
 
   private getContainerBinding = (metaWidgets: MetaWidgetCacheProps[]) => {
     const widgetsProperties: string[] = [];
+
     metaWidgets.forEach((metaWidget) => {
       const { metaWidgetName, templateWidgetId, templateWidgetName, type } =
         metaWidget;
@@ -1808,7 +1840,9 @@ class MetaWidgetGenerator {
     if (rowIndex === -1) {
       return;
     }
+
     const key = this.getPrimaryKey(rowIndex);
+
     return this.getRowTemplateCache(key, this.containerWidgetId, {
       keepMetaWidgetData: true,
     })?.metaWidgetName;
@@ -1843,6 +1877,7 @@ class MetaWidgetGenerator {
       if (!isKeyInPrimaryKey) return false;
 
       const viewIndex = this.primaryKeys.indexOf(key);
+
       return !isEqual(this.data[viewIndex], this.cachedKeyDataMap[key]);
     });
   };
@@ -1850,12 +1885,15 @@ class MetaWidgetGenerator {
   private getDataForCacheKey = (key: string) => {
     if (this.primaryKeys?.includes(key)) {
       const viewIndex = this.primaryKeys.indexOf(key);
+
       return this.data[viewIndex];
     }
 
     const rowIndex = this.getRowIndexFromPrimaryKey(key);
+
     if (!isNil(rowIndex)) {
       const viewIndex = this.getViewIndex(rowIndex);
+
       return this.data[viewIndex];
     }
   };
@@ -1900,6 +1938,7 @@ class MetaWidgetGenerator {
   private unmountVirtualizer = () => {
     if (this.virtualizer) {
       const cleanup = this.virtualizer._didMount();
+
       cleanup();
       this.virtualizer = undefined;
     }
@@ -1911,6 +1950,7 @@ class MetaWidgetGenerator {
       this.virtualizer._didMount()();
 
       const options = this.virtualizerOptions();
+
       if (options) {
         this.virtualizer.setOptions(options);
       }
@@ -1932,7 +1972,8 @@ class MetaWidgetGenerator {
           const listCount = this.data?.length || 0;
           const itemSpacing =
             listCount && ((listCount - 1) * this.itemSpacing) / listCount;
-          return this.templateBottomRow * 10 + itemSpacing;
+
+          return this.templateHeight + itemSpacing;
         },
         getScrollElement: () => scrollElement,
         observeElementOffset,

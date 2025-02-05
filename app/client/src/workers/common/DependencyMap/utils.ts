@@ -1,5 +1,5 @@
 import { find, toPath, union } from "lodash";
-import type { EvalError, DependencyMap } from "utils/DynamicBindingUtils";
+import type { EvalError } from "utils/DynamicBindingUtils";
 import { EvalErrorTypes } from "utils/DynamicBindingUtils";
 import { extractIdentifierInfoFromCode } from "@shared/ast";
 import {
@@ -7,19 +7,17 @@ import {
   getEntityNameAndPropertyPath,
   isJSActionConfig,
   isWidget,
-} from "@appsmith/workers/Evaluation/evaluationUtils";
+} from "ee/workers/Evaluation/evaluationUtils";
 
+import type { WidgetEntityConfig } from "ee/entities/DataTree/types";
 import type {
   ConfigTree,
   DataTreeEntity,
-  WidgetEntity,
-  WidgetEntityConfig,
-} from "entities/DataTree/dataTreeFactory";
+} from "entities/DataTree/dataTreeTypes";
 import {
   DEDICATED_WORKER_GLOBAL_SCOPE_IDENTIFIERS,
   JAVASCRIPT_KEYWORDS,
 } from "constants/WidgetValidation";
-import { APPSMITH_GLOBAL_FUNCTIONS } from "components/editorComponents/ActionCreator/constants";
 import { libraryReservedIdentifiers } from "workers/common/JSLibrary";
 
 /** This function extracts validReferences and invalidReferences from a binding {{}}
@@ -40,12 +38,9 @@ export const extractInfoFromBinding = (
   const { references } = extractIdentifierInfoFromCode(
     script,
     self.evaluationVersion,
-    {
-      ...JAVASCRIPT_KEYWORDS,
-      ...DEDICATED_WORKER_GLOBAL_SCOPE_IDENTIFIERS,
-      ...libraryReservedIdentifiers,
-    },
+    invalidEntityIdentifiers,
   );
+
   return getPrunedReferences(references, allKeys);
 };
 
@@ -59,26 +54,34 @@ export const getPrunedReferences = (
     // If the identifier exists directly, add it and return
     if (allKeys.hasOwnProperty(reference)) {
       prunedReferences.add(reference);
+
       return;
     }
+
     const subpaths = toPath(reference);
     let current = "";
+
     // We want to keep going till we reach top level, but not add top level
     // Eg: Input1.text should not depend on entire Table1 unless it explicitly asked for that.
     // This is mainly to avoid a lot of unnecessary evals, if we feel this is wrong
     // we can remove the length requirement, and it will still work
     while (subpaths.length > 1) {
       current = convertPathToString(subpaths);
+
       // We've found the dep, add it and return
       if (allKeys.hasOwnProperty(current)) {
         prunedReferences.add(current);
+
         return;
       }
+
       subpaths.pop();
     }
+
     // If no valid reference is derived, add reference as is
     prunedReferences.add(reference);
   });
+
   return Array.from(prunedReferences);
 };
 
@@ -94,6 +97,7 @@ export const extractInfoFromBindings = (
     (bindingsInfo: BindingsInfo, binding) => {
       try {
         const references = extractInfoFromBinding(binding, allKeys);
+
         return {
           ...bindingsInfo,
           references: union(bindingsInfo.references, references),
@@ -106,6 +110,7 @@ export const extractInfoFromBindings = (
             script: binding,
           },
         };
+
         return {
           ...bindingsInfo,
           errors: union(bindingsInfo.errors, [newEvalError]),
@@ -116,30 +121,6 @@ export const extractInfoFromBindings = (
   );
 };
 
-export function listValidationDependencies(
-  entity: WidgetEntity,
-  entityName: string,
-  entityConfig: WidgetEntityConfig,
-): DependencyMap {
-  const validationDependency: DependencyMap = {};
-  if (isWidget(entity)) {
-    const { validationPaths } = entityConfig;
-
-    Object.entries(validationPaths).forEach(
-      ([propertyPath, validationConfig]) => {
-        if (validationConfig.dependentPaths) {
-          const dependencyArray = validationConfig.dependentPaths.map(
-            (path) => `${entityName}.${path}`,
-          );
-          validationDependency[`${entityName}.${propertyPath}`] =
-            dependencyArray;
-        }
-      },
-    );
-  }
-  return validationDependency;
-}
-
 /**This function returns a unique array containing a merge of both arrays
  * @param currentArr
  * @param updateArr
@@ -147,6 +128,7 @@ export function listValidationDependencies(
  */
 export const mergeArrays = <T>(currentArr: T[], updateArr: T[]): T[] => {
   if (!currentArr) return updateArr;
+
   return union(currentArr, updateArr);
 };
 
@@ -159,7 +141,6 @@ export const mergeArrays = <T>(currentArr: T[], updateArr: T[]): T[] => {
  */
 export const invalidEntityIdentifiers: Record<string, unknown> = {
   ...JAVASCRIPT_KEYWORDS,
-  ...APPSMITH_GLOBAL_FUNCTIONS,
   ...DEDICATED_WORKER_GLOBAL_SCOPE_IDENTIFIERS,
   ...libraryReservedIdentifiers,
 };
@@ -172,9 +153,11 @@ export function isADynamicTriggerPath(
   if (isWidget(entity)) {
     const dynamicTriggerPathlist = entityConfig?.dynamicTriggerPathList;
     const isTriggerPath = find(dynamicTriggerPathlist, { key: propertyPath });
+
     if (isTriggerPath) {
       return true;
     }
+
     return false;
   }
 }
@@ -182,6 +165,7 @@ export function isADynamicTriggerPath(
 export function isJSFunction(configTree: ConfigTree, fullPath: string) {
   const { entityName, propertyPath } = getEntityNameAndPropertyPath(fullPath);
   const entityConfig = configTree[entityName];
+
   return (
     isJSActionConfig(entityConfig) &&
     propertyPath &&
@@ -189,7 +173,10 @@ export function isJSFunction(configTree: ConfigTree, fullPath: string) {
   );
 }
 export function convertArrayToObject(arr: string[]) {
-  return arr.reduce((acc, item) => {
-    return { ...acc, [item]: true } as const;
-  }, {} as Record<string, true>);
+  return arr.reduce(
+    (acc, item) => {
+      return { ...acc, [item]: true } as const;
+    },
+    {} as Record<string, true>,
+  );
 }

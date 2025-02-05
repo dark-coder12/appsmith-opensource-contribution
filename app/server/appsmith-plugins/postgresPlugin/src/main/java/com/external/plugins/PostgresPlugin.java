@@ -1,5 +1,6 @@
 package com.external.plugins;
 
+import com.appsmith.external.configurations.connectionpool.ConnectionPoolConfig;
 import com.appsmith.external.constants.DataType;
 import com.appsmith.external.datatypes.AppsmithType;
 import com.appsmith.external.dtos.ExecuteActionDTO;
@@ -8,18 +9,23 @@ import com.appsmith.external.exceptions.pluginExceptions.AppsmithPluginException
 import com.appsmith.external.exceptions.pluginExceptions.StaleConnectionException;
 import com.appsmith.external.helpers.DataTypeServiceUtils;
 import com.appsmith.external.helpers.MustacheHelper;
+import com.appsmith.external.helpers.SSHUtils;
+import com.appsmith.external.helpers.Stopwatch;
 import com.appsmith.external.models.ActionConfiguration;
 import com.appsmith.external.models.ActionExecutionRequest;
 import com.appsmith.external.models.ActionExecutionResult;
+import com.appsmith.external.models.ConnectionContext;
 import com.appsmith.external.models.DBAuth;
 import com.appsmith.external.models.DatasourceConfiguration;
 import com.appsmith.external.models.DatasourceStructure;
+import com.appsmith.external.models.DatasourceStructure.Template;
 import com.appsmith.external.models.Endpoint;
 import com.appsmith.external.models.MustacheBindingToken;
 import com.appsmith.external.models.Param;
 import com.appsmith.external.models.Property;
 import com.appsmith.external.models.PsParameterDTO;
 import com.appsmith.external.models.RequestParamDTO;
+import com.appsmith.external.models.SSHConnection;
 import com.appsmith.external.models.SSLDetails;
 import com.appsmith.external.plugins.BasePlugin;
 import com.appsmith.external.plugins.PluginExecutor;
@@ -28,6 +34,7 @@ import com.appsmith.external.services.SharedConfig;
 import com.external.plugins.datatypes.PostgresSpecificDataTypes;
 import com.external.plugins.exceptions.PostgresErrorMessages;
 import com.external.plugins.exceptions.PostgresPluginError;
+import com.external.plugins.utils.MutualTLSCertValidatingFactory;
 import com.external.plugins.utils.PostgresDatasourceUtils;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -40,6 +47,8 @@ import org.apache.commons.lang.ObjectUtils;
 import org.pf4j.Extension;
 import org.pf4j.PluginWrapper;
 import org.postgresql.util.PGobject;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.PSQLState;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
@@ -48,6 +57,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.Date;
@@ -60,6 +70,7 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
@@ -72,15 +83,23 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.appsmith.external.constants.ActionConstants.ACTION_CONFIGURATION_BODY;
+import static com.appsmith.external.constants.PluginConstants.HostName.LOCALHOST;
 import static com.appsmith.external.constants.PluginConstants.PluginName.POSTGRES_PLUGIN_NAME;
+import static com.appsmith.external.exceptions.pluginExceptions.BasePluginErrorMessages.DS_INVALID_SSH_HOSTNAME_ERROR_MSG;
+import static com.appsmith.external.exceptions.pluginExceptions.BasePluginErrorMessages.DS_MISSING_SSH_HOSTNAME_ERROR_MSG;
+import static com.appsmith.external.exceptions.pluginExceptions.BasePluginErrorMessages.DS_MISSING_SSH_KEY_ERROR_MSG;
+import static com.appsmith.external.exceptions.pluginExceptions.BasePluginErrorMessages.DS_MISSING_SSH_USERNAME_ERROR_MSG;
 import static com.appsmith.external.helpers.PluginUtils.getColumnsListForJdbcPlugin;
 import static com.appsmith.external.helpers.PluginUtils.getIdenticalColumns;
 import static com.appsmith.external.helpers.PluginUtils.getPSParamLabel;
+import static com.appsmith.external.helpers.SSHUtils.getConnectionContext;
+import static com.appsmith.external.helpers.SSHUtils.isSSHEnabled;
 import static com.appsmith.external.helpers.Sizeof.sizeof;
 import static com.appsmith.external.helpers.SmartSubstitutionHelper.replaceQuestionMarkWithDollarIndex;
 import static com.external.plugins.utils.PostgresDataTypeUtils.DataType.BOOL;
@@ -94,6 +113,7 @@ import static com.external.plugins.utils.PostgresDataTypeUtils.DataType.VARCHAR;
 import static com.external.plugins.utils.PostgresDataTypeUtils.extractExplicitCasting;
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
+import static org.apache.commons.lang3.StringUtils.isBlank;
 
 @Slf4j
 public class PostgresPlugin extends BasePlugin {
@@ -124,7 +144,11 @@ public class PostgresPlugin extends BasePlugin {
 
     private static final int HEAVY_OP_FREQUENCY = 100;
 
+    public static final Long DEFAULT_POSTGRES_PORT = 5432L;
+
     private static int MAX_SIZE_SUPPORTED;
+
+    private static final int CONNECTION_METHOD_INDEX = 1;
 
     public static PostgresDatasourceUtils postgresDatasourceUtils = new PostgresDatasourceUtils();
 
@@ -180,9 +204,11 @@ public class PostgresPlugin extends BasePlugin {
         private static final int PREPARED_STATEMENT_INDEX = 0;
 
         private final SharedConfig sharedConfig;
+        private final ConnectionPoolConfig connectionPoolConfig;
 
-        public PostgresPluginExecutor(SharedConfig sharedConfig) {
+        public PostgresPluginExecutor(SharedConfig sharedConfig, ConnectionPoolConfig connectionPoolConfig) {
             this.sharedConfig = sharedConfig;
+            this.connectionPoolConfig = connectionPoolConfig;
             MAX_SIZE_SUPPORTED = sharedConfig.getMaxResponseSize();
         }
 
@@ -216,6 +242,7 @@ public class PostgresPlugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": executeParameterized() called for Postgres plugin.");
             String query = actionConfiguration.getBody();
             // Check for query parameter before performing the probably expensive fetch
             // connection from the pool op.
@@ -250,7 +277,7 @@ public class PostgresPlugin extends BasePlugin {
                 return executeCommon(connection, datasourceConfiguration, actionConfiguration, FALSE, null, null, null);
             }
 
-            // Prepared Statement
+            // Prepared statement
 
             // First extract all the bindings in order
             List<MustacheBindingToken> mustacheKeysInOrder = MustacheHelper.extractMustacheKeysInOrder(query);
@@ -266,6 +293,49 @@ public class PostgresPlugin extends BasePlugin {
                     mustacheKeysInOrder,
                     executeActionDTO,
                     explicitCastDataTypes);
+        }
+
+        @Override
+        public ActionConfiguration getSchemaPreviewActionConfig(Template queryTemplate, Boolean isMock) {
+            log.debug(
+                    Thread.currentThread().getName() + ": getSchemaPreviewActionConfig() called for Postgres plugin.");
+            ActionConfiguration actionConfig = new ActionConfiguration();
+            // Sets query body
+            actionConfig.setBody(queryTemplate.getBody());
+
+            // Sets prepared statement to false
+            Property preparedStatement = new Property();
+            preparedStatement.setValue(false);
+            List<Property> pluginSpecifiedTemplates = new ArrayList<Property>();
+            pluginSpecifiedTemplates.add(preparedStatement);
+            actionConfig.setPluginSpecifiedTemplates(pluginSpecifiedTemplates);
+            return actionConfig;
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName()
+                    + ": getEndpointIdentifierForRateLimit() called for Postgres plugin.");
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            SSHConnection sshProxy = datasourceConfiguration.getSshProxy();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                Long port = endpoints.get(0).getPort();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_" + ObjectUtils.defaultIfNull(port, DEFAULT_POSTGRES_PORT);
+                }
+            }
+            if (SSHUtils.isSSHEnabled(datasourceConfiguration, CONNECTION_METHOD_INDEX)
+                    && sshProxy != null
+                    && !isBlank(sshProxy.getHost())) {
+                identifier += "_" + sshProxy.getHost() + "_"
+                        + SSHUtils.getSSHPortFromConfigOrDefault(datasourceConfiguration);
+            }
+            return Mono.just(identifier);
         }
 
         private Mono<ActionExecutionResult> executeCommon(
@@ -285,8 +355,11 @@ public class PostgresPlugin extends BasePlugin {
             String transformedQuery = preparedStatement ? replaceQuestionMarkWithDollarIndex(query) : query;
             List<RequestParamDTO> requestParams =
                     List.of(new RequestParamDTO(ACTION_CONFIGURATION_BODY, transformedQuery, null, null, psParams));
+            Instant requestedAt = Instant.now();
 
             return Mono.fromCallable(() -> {
+                        log.debug(Thread.currentThread().getName()
+                                + ": Within the executeCommon method of PostgresPluginExecutor.");
                         Connection connectionFromPool;
 
                         try {
@@ -320,13 +393,13 @@ public class PostgresPlugin extends BasePlugin {
                         int activeConnections = poolProxy.getActiveConnections();
                         int totalConnections = poolProxy.getTotalConnections();
                         int threadsAwaitingConnection = poolProxy.getThreadsAwaitingConnection();
-                        log.debug(
-                                "Before executing postgres query [{}] Hikari Pool stats : active - {} , idle - {} , awaiting - {} , total - {}",
+                        log.debug(String.format(
+                                "Before executing postgres query [%s] Hikari Pool stats: active - %d, idle - %d, awaiting - %d, total - %d",
                                 query,
                                 activeConnections,
                                 idleConnections,
                                 threadsAwaitingConnection,
-                                totalConnections);
+                                totalConnections));
                         try {
                             if (FALSE.equals(preparedStatement)) {
                                 statement = connectionFromPool.createStatement();
@@ -379,10 +452,9 @@ public class PostgresPlugin extends BasePlugin {
                                         int objectSize = sizeof(rowsList);
 
                                         if (objectSize > MAX_SIZE_SUPPORTED) {
-                                            log.debug(
-                                                    "[PostgresPlugin] Result size greater than maximum supported size of {} bytes. Current size : {}",
-                                                    MAX_SIZE_SUPPORTED,
-                                                    objectSize);
+                                            log.debug(String.format(
+                                                    "[PostgresPlugin] Result size greater than maximum supported size of %d bytes. Current size: %d",
+                                                    MAX_SIZE_SUPPORTED, objectSize));
                                             return Mono.error(new AppsmithPluginException(
                                                     PostgresPluginError.RESPONSE_SIZE_TOO_LARGE,
                                                     (float) (MAX_SIZE_SUPPORTED / (1024 * 1024))));
@@ -426,7 +498,12 @@ public class PostgresPlugin extends BasePlugin {
 
                                         } else if (JSON_TYPE_NAME.equalsIgnoreCase(typeName)
                                                 || JSONB_TYPE_NAME.equalsIgnoreCase(typeName)) {
+                                            log.debug(Thread.currentThread().getName()
+                                                    + ": objectMapper readTree for Postgres plugin.");
+                                            Stopwatch processStopwatch =
+                                                    new Stopwatch("Postgres Plugin objectMapper readTree");
                                             value = objectMapper.readTree(resultSet.getString(i));
+                                            processStopwatch.stopAndLogTimeInMillis();
                                         } else {
                                             value = resultSet.getObject(i);
 
@@ -465,7 +542,7 @@ public class PostgresPlugin extends BasePlugin {
                             // Since postgres json type field can only hold valid json data, this exception
                             // is not expected
                             // to occur.
-                            log.debug("In the PostgresPlugin, got action execution error");
+                            log.error("In the PostgresPlugin, got action execution error");
                             return Mono.error(new AppsmithPluginException(
                                     PostgresPluginError.QUERY_EXECUTION_FAILED,
                                     PostgresErrorMessages.QUERY_EXECUTION_FAILED_ERROR_MSG,
@@ -475,17 +552,15 @@ public class PostgresPlugin extends BasePlugin {
                             activeConnections = poolProxy.getActiveConnections();
                             totalConnections = poolProxy.getTotalConnections();
                             threadsAwaitingConnection = poolProxy.getThreadsAwaitingConnection();
-                            log.debug(
-                                    "After executing postgres query, Hikari Pool stats active - {} , idle - {} , awaiting - {} , total - {} ",
-                                    activeConnections,
-                                    idleConnections,
-                                    threadsAwaitingConnection,
-                                    totalConnections);
+                            log.debug(String.format(
+                                    "After executing postgres query, Hikari Pool stats active - %d, idle - %d, awaiting - %d, total - %d",
+                                    activeConnections, idleConnections, threadsAwaitingConnection, totalConnections));
                             if (resultSet != null) {
                                 try {
                                     resultSet.close();
                                 } catch (SQLException e) {
-                                    log.debug("Execute Error closing Postgres ResultSet", e);
+                                    log.error("Execute Error closing Postgres ResultSet");
+                                    e.printStackTrace();
                                 }
                             }
 
@@ -493,7 +568,8 @@ public class PostgresPlugin extends BasePlugin {
                                 try {
                                     statement.close();
                                 } catch (SQLException e) {
-                                    log.debug("Execute Error closing Postgres Statement", e);
+                                    log.error("Execute Error closing Postgres Statement");
+                                    e.printStackTrace();
                                 }
                             }
 
@@ -501,7 +577,8 @@ public class PostgresPlugin extends BasePlugin {
                                 try {
                                     preparedQuery.close();
                                 } catch (SQLException e) {
-                                    log.debug("Execute Error closing Postgres Statement", e);
+                                    log.error("Execute Error closing Postgres Statement");
+                                    e.printStackTrace();
                                 }
                             }
 
@@ -510,16 +587,21 @@ public class PostgresPlugin extends BasePlugin {
                                     // Return the connection back to the pool
                                     connectionFromPool.close();
                                 } catch (SQLException e) {
-                                    log.debug("Execute Error returning Postgres connection to pool", e);
+                                    log.error("Execute Error returning Postgres connection to pool");
+                                    e.printStackTrace();
                                 }
                             }
                         }
 
                         ActionExecutionResult result = new ActionExecutionResult();
+                        log.debug(Thread.currentThread().getName() + ": objectMapper valueToTree for Postgres plugin.");
+                        Stopwatch processStopwatch = new Stopwatch("Postgres Plugin objectMapper valueToTree");
                         result.setBody(objectMapper.valueToTree(rowsList));
+                        processStopwatch.stopAndLogTimeInMillis();
                         result.setMessages(populateHintMessages(columnsList));
                         result.setIsExecutionSuccess(true);
-                        log.debug("In the PostgresPlugin, got action execution result");
+                        log.debug(Thread.currentThread().getName()
+                                + ": In the PostgresPlugin, got action execution result");
                         return Mono.just(result);
                     })
                     .flatMap(obj -> obj)
@@ -544,6 +626,9 @@ public class PostgresPlugin extends BasePlugin {
                         request.setQuery(query);
                         request.setProperties(requestData);
                         request.setRequestParams(requestParams);
+                        if (request.getRequestedAt() == null) {
+                            request.setRequestedAt(requestedAt);
+                        }
                         ActionExecutionResult result = actionExecutionResult;
                         result.setRequest(request);
                         return result;
@@ -579,6 +664,7 @@ public class PostgresPlugin extends BasePlugin {
 
         @Override
         public Mono<HikariDataSource> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for Postgres plugin.");
             try {
                 Class.forName(JDBC_DRIVER);
             } catch (ClassNotFoundException e) {
@@ -588,11 +674,11 @@ public class PostgresPlugin extends BasePlugin {
                         e.getMessage()));
             }
 
-            return Mono.fromCallable(() -> {
-                        log.debug("Connecting to Postgres db");
-                        return createConnectionPool(datasourceConfiguration);
+            return connectionPoolConfig.getMaxConnectionPoolSize().flatMap(maxPoolSize -> Mono.fromCallable(() -> {
+                        log.debug(Thread.currentThread().getName() + ": Connecting to Postgres db");
+                        return createConnectionPool(datasourceConfiguration, maxPoolSize);
                     })
-                    .subscribeOn(scheduler);
+                    .subscribeOn(scheduler));
         }
 
         @Override
@@ -604,6 +690,7 @@ public class PostgresPlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for Postgres plugin.");
             Set<String> invalids = new HashSet<>();
 
             if (CollectionUtils.isEmpty(datasourceConfiguration.getEndpoints())) {
@@ -634,6 +721,10 @@ public class PostgresPlugin extends BasePlugin {
                     invalids.add(PostgresErrorMessages.DS_MISSING_USERNAME_ERROR_MSG);
                 }
 
+                if (StringUtils.isEmpty(authentication.getPassword())) {
+                    invalids.add(PostgresErrorMessages.DS_MISSING_PASSWORD_ERROR_MSG);
+                }
+
                 if (StringUtils.isEmpty(authentication.getDatabaseName())) {
                     invalids.add(PostgresErrorMessages.DS_MISSING_DATABASE_NAME_ERROR_MSG);
                 }
@@ -649,6 +740,32 @@ public class PostgresPlugin extends BasePlugin {
                 invalids.add(PostgresErrorMessages.SSL_CONFIGURATION_ERROR_MSG);
             }
 
+            if (isSSHEnabled(datasourceConfiguration, CONNECTION_METHOD_INDEX)) {
+                if (datasourceConfiguration.getSshProxy() == null
+                        || isBlank(datasourceConfiguration.getSshProxy().getHost())) {
+                    invalids.add(DS_MISSING_SSH_HOSTNAME_ERROR_MSG);
+                } else {
+                    String sshHost = datasourceConfiguration.getSshProxy().getHost();
+                    if (sshHost.contains("/") || sshHost.contains(":")) {
+                        invalids.add(DS_INVALID_SSH_HOSTNAME_ERROR_MSG);
+                    }
+                }
+
+                if (isBlank(datasourceConfiguration.getSshProxy().getUsername())) {
+                    invalids.add(DS_MISSING_SSH_USERNAME_ERROR_MSG);
+                }
+
+                if (datasourceConfiguration.getSshProxy().getPrivateKey() == null
+                        || datasourceConfiguration.getSshProxy().getPrivateKey().getKeyFile() == null
+                        || isBlank(datasourceConfiguration
+                                .getSshProxy()
+                                .getPrivateKey()
+                                .getKeyFile()
+                                .getBase64Content())) {
+                    invalids.add(DS_MISSING_SSH_KEY_ERROR_MSG);
+                }
+            }
+
             return invalids;
         }
 
@@ -656,8 +773,9 @@ public class PostgresPlugin extends BasePlugin {
         public Mono<DatasourceStructure> getStructure(
                 HikariDataSource connection, DatasourceConfiguration datasourceConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": getStructure() called for Postgres plugin.");
             final DatasourceStructure structure = new DatasourceStructure();
-            final Map<String, DatasourceStructure.Table> tablesByName = new LinkedHashMap<>();
+            final Map<String, DatasourceStructure.Table> tablesByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
             return Mono.fromSupplier(() -> {
                         Connection connectionFromPool;
@@ -684,12 +802,9 @@ public class PostgresPlugin extends BasePlugin {
                         int activeConnections = poolProxy.getActiveConnections();
                         int totalConnections = poolProxy.getTotalConnections();
                         int threadsAwaitingConnection = poolProxy.getThreadsAwaitingConnection();
-                        log.debug(
-                                "Before getting postgres db structure Hikari Pool stats active - {} , idle - {} , awaiting - {} , total - {} ",
-                                activeConnections,
-                                idleConnections,
-                                threadsAwaitingConnection,
-                                totalConnections);
+                        log.debug(String.format(
+                                "Before getting postgres db structure Hikari Pool stats active - %d, idle - %d, awaiting - %d, total - %d",
+                                activeConnections, idleConnections, threadsAwaitingConnection, totalConnections));
 
                         // Ref:
                         // <https://docs.oracle.com/en/java/javase/11/docs/api/java.sql/java/sql/DatabaseMetaData.html>.
@@ -833,28 +948,31 @@ public class PostgresPlugin extends BasePlugin {
                                     setFragments.deleteCharAt(setFragments.length() - 1);
                                 }
 
-                                final String quotedTableName = table.getName().replaceFirst("\\.(\\w+)", ".\"$1\"");
+                                final String quotedTableName = table.getName().replaceFirst("\\.(.+)", ".\"$1\"");
                                 table.getTemplates()
-                                        .addAll(
-                                                List.of(
-                                                        new DatasourceStructure.Template(
-                                                                "SELECT",
-                                                                "SELECT * FROM " + quotedTableName + " LIMIT 10;"),
-                                                        new DatasourceStructure.Template(
-                                                                "INSERT",
-                                                                "INSERT INTO " + quotedTableName
-                                                                        + " (" + String.join(", ", columnNames) + ")\n"
-                                                                        + "  VALUES (" + String.join(", ", columnValues)
-                                                                        + ");"),
-                                                        new DatasourceStructure.Template(
-                                                                "UPDATE",
-                                                                "UPDATE " + quotedTableName + " SET"
-                                                                        + setFragments.toString() + "\n"
-                                                                        + "  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may update every row in the table!"),
-                                                        new DatasourceStructure.Template(
-                                                                "DELETE",
-                                                                "DELETE FROM " + quotedTableName
-                                                                        + "\n  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may delete everything in the table!")));
+                                        .addAll(List.of(
+                                                new DatasourceStructure.Template(
+                                                        "SELECT",
+                                                        "SELECT * FROM " + quotedTableName + " LIMIT 10;",
+                                                        true),
+                                                new DatasourceStructure.Template(
+                                                        "INSERT",
+                                                        "INSERT INTO " + quotedTableName
+                                                                + " (" + String.join(", ", columnNames) + ")\n"
+                                                                + "  VALUES (" + String.join(", ", columnValues)
+                                                                + ");",
+                                                        false),
+                                                new DatasourceStructure.Template(
+                                                        "UPDATE",
+                                                        "UPDATE " + quotedTableName + " SET"
+                                                                + setFragments.toString() + "\n"
+                                                                + "  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may update every row in the table!",
+                                                        false),
+                                                new DatasourceStructure.Template(
+                                                        "DELETE",
+                                                        "DELETE FROM " + quotedTableName
+                                                                + "\n  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may delete everything in the table!",
+                                                        false)));
                             }
 
                         } catch (SQLException throwable) {
@@ -868,19 +986,17 @@ public class PostgresPlugin extends BasePlugin {
                             activeConnections = poolProxy.getActiveConnections();
                             totalConnections = poolProxy.getTotalConnections();
                             threadsAwaitingConnection = poolProxy.getThreadsAwaitingConnection();
-                            log.debug(
-                                    "After postgres db structure, Hikari Pool stats active - {} , idle - {} , awaiting - {} , total - {} ",
-                                    activeConnections,
-                                    idleConnections,
-                                    threadsAwaitingConnection,
-                                    totalConnections);
+                            log.debug(String.format(
+                                    "After postgres db structure, Hikari Pool stats active - %d, idle - %d, awaiting - %d, total - %d",
+                                    activeConnections, idleConnections, threadsAwaitingConnection, totalConnections));
 
                             if (connectionFromPool != null) {
                                 try {
                                     // Return the connection back to the pool
                                     connectionFromPool.close();
                                 } catch (SQLException e) {
-                                    log.debug("Error returning Postgres connection to pool during get structure", e);
+                                    log.error("Error returning Postgres connection to pool during get structure");
+                                    e.printStackTrace();
                                 }
                             }
                         }
@@ -889,7 +1005,7 @@ public class PostgresPlugin extends BasePlugin {
                         for (DatasourceStructure.Table table : structure.getTables()) {
                             table.getKeys().sort(Comparator.naturalOrder());
                         }
-                        log.debug("Got the structure of postgres db");
+                        log.debug(Thread.currentThread().getName() + ": Got the structure of postgres db");
                         return structure;
                     })
                     .map(resultStructure -> (DatasourceStructure) resultStructure)
@@ -970,7 +1086,12 @@ public class PostgresPlugin extends BasePlugin {
                         preparedStatement.setArray(index, null);
                         break;
                     case ARRAY: {
+                        log.debug(Thread.currentThread().getName()
+                                + ": objectMapper readValue for Postgres plugin ARRAY class");
+                        Stopwatch processStopwatch =
+                                new Stopwatch("Postgres Plugin objectMapper readValue for ARRAY class");
                         List arrayListFromInput = objectMapper.readValue(value, List.class);
+                        processStopwatch.stopAndLogTimeInMillis();
                         if (arrayListFromInput.isEmpty()) {
                             break;
                         }
@@ -1046,7 +1167,8 @@ public class PostgresPlugin extends BasePlugin {
      * @param datasourceConfiguration
      * @return connection pool
      */
-    private static HikariDataSource createConnectionPool(DatasourceConfiguration datasourceConfiguration)
+    private static HikariDataSource createConnectionPool(
+            DatasourceConfiguration datasourceConfiguration, Integer maximumConfigurablePoolSize)
             throws AppsmithPluginException {
         HikariConfig config = new HikariConfig();
 
@@ -1055,7 +1177,13 @@ public class PostgresPlugin extends BasePlugin {
         // Set SSL property
         com.appsmith.external.models.Connection configurationConnection = datasourceConfiguration.getConnection();
         config.setMinimumIdle(MINIMUM_POOL_SIZE);
-        config.setMaximumPoolSize(MAXIMUM_POOL_SIZE);
+
+        int maxPoolSize = MAXIMUM_POOL_SIZE;
+        if (maximumConfigurablePoolSize != null && maximumConfigurablePoolSize >= maxPoolSize) {
+            maxPoolSize = maximumConfigurablePoolSize;
+        }
+
+        config.setMaximumPoolSize(maxPoolSize);
 
         // Set authentication properties
         DBAuth authentication = (DBAuth) datasourceConfiguration.getAuthentication();
@@ -1069,9 +1197,20 @@ public class PostgresPlugin extends BasePlugin {
         // Set up the connection URL
         StringBuilder urlBuilder = new StringBuilder("jdbc:postgresql://");
 
-        List<String> hosts = datasourceConfiguration.getEndpoints().stream()
-                .map(endpoint -> endpoint.getHost() + ":" + ObjectUtils.defaultIfNull(endpoint.getPort(), 5432L))
-                .collect(Collectors.toList());
+        List<String> hosts = new ArrayList<>();
+
+        if (!isSSHEnabled(datasourceConfiguration, CONNECTION_METHOD_INDEX)) {
+            for (Endpoint endpoint : datasourceConfiguration.getEndpoints()) {
+                hosts.add(endpoint.getHost() + ":" + ObjectUtils.defaultIfNull(endpoint.getPort(), 5432L));
+            }
+        } else {
+            ConnectionContext<HikariDataSource> connectionContext;
+            connectionContext = getConnectionContext(
+                    datasourceConfiguration, CONNECTION_METHOD_INDEX, DEFAULT_POSTGRES_PORT, HikariDataSource.class);
+
+            hosts.add(LOCALHOST + ":"
+                    + connectionContext.getSshTunnelContext().getServerSocket().getLocalPort());
+        }
 
         urlBuilder.append(String.join(",", hosts)).append("/");
 
@@ -1124,8 +1263,48 @@ public class PostgresPlugin extends BasePlugin {
                 break;
             case DEFAULT:
                 /* do nothing - accept default driver setting */
+                break;
+
+            case VERIFY_CA:
+            case VERIFY_FULL:
+                config.addDataSourceProperty("ssl", "true");
+                if (sslAuthType == SSLDetails.AuthType.VERIFY_FULL) {
+                    config.addDataSourceProperty("sslmode", "verify-full");
+                } else {
+                    config.addDataSourceProperty("sslmode", "verify-ca");
+                }
+                // Common properties for both VERIFY_CA and VERIFY_FULL
+                config.addDataSourceProperty("sslfactory", MutualTLSCertValidatingFactory.class.getName());
+                config.addDataSourceProperty(
+                        "clientCertString",
+                        new String(
+                                datasourceConfiguration
+                                        .getConnection()
+                                        .getSsl()
+                                        .getClientCACertificateFile()
+                                        .getDecodedContent(),
+                                StandardCharsets.UTF_8));
+                config.addDataSourceProperty(
+                        "clientKeyString",
+                        new String(
+                                datasourceConfiguration
+                                        .getConnection()
+                                        .getSsl()
+                                        .getClientKeyCertificateFile()
+                                        .getDecodedContent(),
+                                StandardCharsets.UTF_8));
+                config.addDataSourceProperty(
+                        "serverCACertString",
+                        new String(
+                                datasourceConfiguration
+                                        .getConnection()
+                                        .getSsl()
+                                        .getServerCACertificateFile()
+                                        .getDecodedContent(),
+                                StandardCharsets.UTF_8));
 
                 break;
+
             default:
                 throw new AppsmithPluginException(
                         PostgresPluginError.POSTGRES_PLUGIN_ERROR,
@@ -1159,10 +1338,21 @@ public class PostgresPlugin extends BasePlugin {
         try {
             datasource = new HikariDataSource(config);
         } catch (PoolInitializationException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof PSQLException) {
+                PSQLException psqlException = (PSQLException) cause;
+                String sqlState = psqlException.getSQLState();
+                if (PSQLState.CONNECTION_UNABLE_TO_CONNECT.getState().equals(sqlState)) {
+                    throw new AppsmithPluginException(
+                            AppsmithPluginError.PLUGIN_DATASOURCE_ARGUMENT_ERROR,
+                            PostgresErrorMessages.DS_INVALID_HOSTNAME_AND_PORT_MSG,
+                            psqlException.getMessage());
+                }
+            }
             throw new AppsmithPluginException(
                     AppsmithPluginError.PLUGIN_DATASOURCE_ARGUMENT_ERROR,
                     PostgresErrorMessages.CONNECTION_POOL_CREATION_FAILED_ERROR_MSG,
-                    e.getMessage());
+                    cause != null ? cause.getMessage() : e.getMessage());
         }
 
         return datasource;

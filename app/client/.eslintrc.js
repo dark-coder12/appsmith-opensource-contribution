@@ -13,7 +13,14 @@ const baseNoRestrictedImports =
 const eslintConfig = {
   extends: ["./.eslintrc.base.json"],
   rules: {
-    "@typescript-eslint/no-explicit-any": "off",
+    "testing-library/no-container": "off",
+    "testing-library/no-node-access": "off",
+    "testing-library/no-debugging-utils": "off",
+    "testing-library/prefer-screen-queries": "off",
+    "testing-library/render-result-naming-convention": "off",
+    "testing-library/no-unnecessary-act": "off",
+    "@typescript-eslint/prefer-nullish-coalescing": "off",
+    "@typescript-eslint/strict-boolean-expressions": "off",
     "react/display-name": "off",
     "react/prop-types": "off",
     // `no-restricted-imports` is disabled, as recommended in https://typescript-eslint.io/rules/no-restricted-imports/.
@@ -49,7 +56,7 @@ const eslintConfig = {
           ...(baseNoRestrictedImports.patterns ?? []),
           {
             group: ["**/ce/*"],
-            message: "Reason: Please use @appsmith import instead.",
+            message: "Reason: Please use ee/ import instead.",
           },
         ],
       },

@@ -1,33 +1,21 @@
-import { PluginType } from "entities/Action";
+import { PluginType } from "entities/Plugin";
 import type { Datasource } from "entities/Datasource";
 
-export const DB_NOT_SUPPORTED = [PluginType.REMOTE, PluginType.SAAS];
+export const DB_NOT_SUPPORTED = [
+  PluginType.REMOTE,
+  PluginType.SAAS,
+  PluginType.AI,
+];
 
 export const getUserPreferenceFromStorage = () => {
   return "true";
 };
 
-export const getCurrentEditingEnvID = () => {
-  // Get the values of environment ID being edited
-  return getCurrentEnvironment();
-};
-
-// function to get the current environment from the URL
-export const getCurrentEnvironment = () => {
-  return "unused_env";
-};
-
-// function to get the current environment from the URL
-export const getCurrentEnvName = () => {
-  return "";
-};
-
 // function to check if the datasource is created for the current environment
 export const isStorageEnvironmentCreated = (
   datasource: Datasource | null,
-  environment?: string,
+  environment: string,
 ) => {
-  !environment && (environment = getCurrentEnvironment());
   return (
     !!datasource &&
     datasource.hasOwnProperty("datasourceStorages") &&
@@ -43,25 +31,23 @@ export const isStorageEnvironmentCreated = (
 // function to check if the datasource is configured for the current environment
 export const isEnvironmentConfigured = (
   datasource: Datasource | null,
-  environment?: string,
+  environment: string,
 ) => {
-  !environment && (environment = getCurrentEnvironment());
   const isConfigured =
     !!datasource &&
     !!datasource.datasourceStorages &&
     datasource.datasourceStorages[environment]?.isConfigured;
+
   return !!isConfigured ? isConfigured : false;
 };
 
 // function to check if the datasource is configured for any environment
-export const doesAnyDsConfigExist = (
-  datasource: Datasource | null,
-  environment?: string,
-) => {
-  !environment && (environment = getCurrentEnvironment());
+export const doesAnyDsConfigExist = (datasource: Datasource | null) => {
   let isConfigured = false;
+
   if (!!datasource && !!datasource.datasourceStorages) {
     const envsList = Object.keys(datasource.datasourceStorages);
+
     if (envsList.length === 0) {
       isConfigured = false;
     } else {
@@ -70,24 +56,21 @@ export const doesAnyDsConfigExist = (
       isConfigured = true;
     }
   }
+
   return isConfigured;
 };
 
 // function to check if the datasource is valid for the current environment
 export const isEnvironmentValid = (
   datasource: Datasource | null,
-  environment?: string,
+  environment: string,
 ) => {
-  !environment && (environment = getCurrentEnvironment());
   const isValid =
     datasource &&
     datasource.datasourceStorages &&
     datasource.datasourceStorages[environment]?.isValid;
-  return isValid ? isValid : false;
-};
 
-export const onUpdateFilterSuccess = (id: string) => {
-  return id;
+  return isValid ? isValid : false;
 };
 
 /*
@@ -95,7 +78,7 @@ export const onUpdateFilterSuccess = (id: string) => {
  */
 export const getEnvironmentConfiguration = (
   datasource: Datasource | null,
-  environment = getCurrentEnvironment(),
+  environment: string,
 ) => {
   return datasource?.datasourceStorages?.[environment]?.datasourceConfiguration;
 };

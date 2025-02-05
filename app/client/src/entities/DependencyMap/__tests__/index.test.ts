@@ -3,6 +3,7 @@ import { DependencyMapUtils } from "../DependencyMapUtils";
 
 describe("Tests for DependencyMap", () => {
   const dataDependencyMap = new DependencyMap();
+
   it("should be able to add a node", () => {
     dataDependencyMap.addNodes({
       a: true,
@@ -1822,91 +1823,6 @@ describe("Tests for DependencyMapUtils", () => {
     "Button8.meta": true,
     "Button8.type": true,
     "Button8.isMobile": true,
-    pageList: true,
-    "pageList[0]": true,
-    "pageList[0].pageName": true,
-    "pageList[0].pageId": true,
-    "pageList[0].isDefault": true,
-    "pageList[0].isHidden": true,
-    "pageList[0].slug": true,
-    "pageList[0].customSlug": true,
-    "pageList[0].userPermissions": true,
-    "pageList[0].userPermissions[0]": true,
-    "pageList[0].userPermissions[1]": true,
-    "pageList[0].userPermissions[2]": true,
-    "pageList[0].userPermissions[3]": true,
-    "pageList[1]": true,
-    "pageList[1].pageName": true,
-    "pageList[1].pageId": true,
-    "pageList[1].isDefault": true,
-    "pageList[1].isHidden": true,
-    "pageList[1].slug": true,
-    "pageList[1].customSlug": true,
-    "pageList[1].userPermissions": true,
-    "pageList[1].userPermissions[0]": true,
-    "pageList[1].userPermissions[1]": true,
-    "pageList[1].userPermissions[2]": true,
-    "pageList[1].userPermissions[3]": true,
-    "pageList[2]": true,
-    "pageList[2].pageName": true,
-    "pageList[2].pageId": true,
-    "pageList[2].isDefault": true,
-    "pageList[2].isHidden": true,
-    "pageList[2].slug": true,
-    "pageList[2].customSlug": true,
-    "pageList[2].userPermissions": true,
-    "pageList[2].userPermissions[0]": true,
-    "pageList[2].userPermissions[1]": true,
-    "pageList[2].userPermissions[2]": true,
-    "pageList[2].userPermissions[3]": true,
-    "pageList[3]": true,
-    "pageList[3].pageName": true,
-    "pageList[3].pageId": true,
-    "pageList[3].isDefault": true,
-    "pageList[3].isHidden": true,
-    "pageList[3].slug": true,
-    "pageList[3].customSlug": true,
-    "pageList[3].userPermissions": true,
-    "pageList[3].userPermissions[0]": true,
-    "pageList[3].userPermissions[1]": true,
-    "pageList[3].userPermissions[2]": true,
-    "pageList[3].userPermissions[3]": true,
-    "pageList[4]": true,
-    "pageList[4].pageName": true,
-    "pageList[4].pageId": true,
-    "pageList[4].isDefault": true,
-    "pageList[4].isHidden": true,
-    "pageList[4].slug": true,
-    "pageList[4].customSlug": true,
-    "pageList[4].userPermissions": true,
-    "pageList[4].userPermissions[0]": true,
-    "pageList[4].userPermissions[1]": true,
-    "pageList[4].userPermissions[2]": true,
-    "pageList[4].userPermissions[3]": true,
-    "pageList[5]": true,
-    "pageList[5].pageName": true,
-    "pageList[5].pageId": true,
-    "pageList[5].isDefault": true,
-    "pageList[5].isHidden": true,
-    "pageList[5].slug": true,
-    "pageList[5].customSlug": true,
-    "pageList[5].userPermissions": true,
-    "pageList[5].userPermissions[0]": true,
-    "pageList[5].userPermissions[1]": true,
-    "pageList[5].userPermissions[2]": true,
-    "pageList[5].userPermissions[3]": true,
-    "pageList[6]": true,
-    "pageList[6].pageName": true,
-    "pageList[6].pageId": true,
-    "pageList[6].isDefault": true,
-    "pageList[6].isHidden": true,
-    "pageList[6].slug": true,
-    "pageList[6].customSlug": true,
-    "pageList[6].userPermissions": true,
-    "pageList[6].userPermissions[0]": true,
-    "pageList[6].userPermissions[1]": true,
-    "pageList[6].userPermissions[2]": true,
-    "pageList[6].userPermissions[3]": true,
     appsmith: true,
     "appsmith.user": true,
     "appsmith.user.email": true,
@@ -2539,10 +2455,13 @@ describe("Tests for DependencyMapUtils", () => {
   for (const [path, deps] of Object.entries(dependencies)) {
     dependencyMap.addDependency(path, deps);
   }
+
   DependencyMapUtils.makeParentsDependOnChildren(dependencyMap);
 
   const result = DependencyMapUtils.sortDependencies(dependencyMap);
+
   expect(result.success).toBe(true);
+
   if (result.success) {
     expect(result.sortedDependencies).toStrictEqual([
       "appsmith.theme.borderRadius.appBorderRadius",
@@ -2793,4 +2712,131 @@ describe("Tests for DependencyMapUtils", () => {
       "Api1",
     ]);
   }
+
+  describe("linkAffectedChildNodesToParent", () => {
+    const createSomeDependencyMap = () => {
+      const dependencyMap = new DependencyMap();
+
+      dependencyMap.addNodes({
+        tableWidget: true,
+        apiData: true,
+        "tableWidget.tableData": true,
+        "apiData.data": true,
+        "apiData.allData": true,
+        "apiData.allData.paginatedData": true,
+      });
+      dependencyMap.addDependency("tableWidget", ["tableWidget.tableData"]);
+
+      return dependencyMap;
+    };
+
+    test("should link child node to its parentNode as a dependant", () => {
+      const dependencyMap = createSomeDependencyMap();
+
+      dependencyMap.addDependency("tableWidget.tableData", ["apiData.data"]);
+      // although "apiData.data" was attached as a dependency to "tableWidget.tableData", it's parent "apiData" also needs to be linked to "apiData.data"
+      expect(dependencyMap.rawDependencies.get("apiData")).toEqual(undefined);
+      const affectedNodes = new Set(["apiData.data"]);
+
+      DependencyMapUtils.linkAffectedChildNodesToParent(
+        dependencyMap,
+        affectedNodes,
+      );
+      // after linkAffectedChildNodesToParent execution "apiData" does get linked to "apiData.data"
+      expect(dependencyMap.rawDependencies.get("apiData")).toEqual(
+        new Set(["apiData.data"]),
+      );
+    });
+    test("should not link child node to its parentNode as a dependant when the child node is not affected ", () => {
+      const dependencyMap = createSomeDependencyMap();
+
+      dependencyMap.addDependency("tableWidget.tableData", ["apiData.data"]);
+      // although "apiData.data" was attached as a dependency to "tableWidget.tableData", it's parent "apiData" also needs to be linked to "apiData.data"
+      expect(dependencyMap.rawDependencies.get("apiData")).toEqual(undefined);
+      const emptyAffectedNodes = new Set([]);
+
+      DependencyMapUtils.linkAffectedChildNodesToParent(
+        dependencyMap,
+        emptyAffectedNodes,
+      );
+      expect(dependencyMap.rawDependencies.get("apiData")).toEqual(undefined);
+    });
+
+    test("should link child node to its grand parent node as a dependant", () => {
+      const dependencyMap = createSomeDependencyMap();
+
+      dependencyMap.addDependency("tableWidget.tableData", [
+        "apiData.allData.paginatedData",
+      ]);
+      expect(dependencyMap.rawDependencies.get("apiData")).toEqual(undefined);
+      const affectedNodes = new Set(["apiData.allData.paginatedData"]);
+
+      DependencyMapUtils.linkAffectedChildNodesToParent(
+        dependencyMap,
+        affectedNodes,
+      );
+      // after linkAffectedChildNodesToParent execution "apiData.allData.paginatedData" get linked to "apiData.data" and its parent "apiData.data" gets linked to "apiData"
+      expect(dependencyMap.getDirectDependencies("apiData")).toEqual([
+        "apiData.allData",
+      ]);
+      expect(dependencyMap.getDirectDependencies("apiData.allData")).toEqual([
+        "apiData.allData.paginatedData",
+      ]);
+    });
+  });
+  describe("makeParentsDependOnChild", () => {
+    const createSomeDependencyMap = () => {
+      const dependencyMap = new DependencyMap();
+
+      dependencyMap.addNodes({
+        tableWidget: true,
+        apiData: true,
+        "tableWidget.tableData": true,
+        "apiData.data": true,
+      });
+      dependencyMap.addDependency("tableWidget", [
+        "tableWidget.tableData",
+        "apiData.data",
+      ]);
+      dependencyMap.addDependency("apiData", []);
+
+      return dependencyMap;
+    };
+
+    afterEach(() => {
+      jest.clearAllMocks();
+    });
+    test("should trigger addDependency when the child node isn't there ", () => {
+      const dependencyMap = createSomeDependencyMap();
+      const spy = jest.spyOn(dependencyMap, "addDependency");
+
+      DependencyMapUtils.makeParentsDependOnChild(
+        dependencyMap,
+        "apiData.data",
+      );
+      // addDependency is called
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(dependencyMap.getDirectDependencies("apiData")).toEqual([
+        "apiData.data",
+      ]);
+    });
+    test("should not trigger addDependency when the child node is there ", () => {
+      const dependencyMap = createSomeDependencyMap();
+
+      //ensure that the child node is a depedency
+      dependencyMap.addDependency("apiData", ["apiData.data"]);
+
+      expect(dependencyMap.getDirectDependencies("apiData")).toEqual([
+        "apiData.data",
+      ]);
+      const spy = jest.spyOn(dependencyMap, "addDependency");
+
+      DependencyMapUtils.makeParentsDependOnChild(
+        dependencyMap,
+        "apiData.data",
+      );
+      // addDependency is not called
+      expect(spy).toHaveBeenCalledTimes(0);
+    });
+  });
 });

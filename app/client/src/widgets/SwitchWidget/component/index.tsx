@@ -4,7 +4,7 @@ import { BlueprintControlTransform } from "constants/DefaultTheme";
 import React from "react";
 import styled from "styled-components";
 import type { ComponentProps } from "widgets/BaseComponent";
-import { AlignWidgetTypes } from "widgets/constants";
+import { AlignWidgetTypes } from "WidgetProvider/constants";
 import { Colors } from "constants/Colors";
 import { FontStyleTypes } from "constants/WidgetConstants";
 import { darkenColor } from "widgets/WidgetUtils";
@@ -17,6 +17,8 @@ export interface SwitchComponentProps extends ComponentProps {
   alignWidget: AlignWidgetTypes;
   labelPosition: LabelPosition;
   accentColor: string;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   inputRef?: (ref: HTMLInputElement | null) => any;
   labelTextColor?: string;
   labelTextSize?: string;
@@ -39,8 +41,7 @@ const SwitchComponentContainer = styled.div<{
   ${({ minHeight }) => `
     ${minHeight ? `min-height: ${minHeight}px;` : undefined}`};
 
-  ${({ width }) => `
-    ${width ? `width: ${width};` : undefined}`};
+  width: 100%;
 
   ${BlueprintControlTransform}
 `;
@@ -113,6 +114,7 @@ function SwitchComponent({
   inputRef,
   isDisabled,
   isDynamicHeightEnabled,
+  isLabelInline,
   isLoading,
   isSwitchedOn,
   label,
@@ -120,9 +122,8 @@ function SwitchComponent({
   labelStyle,
   labelTextColor,
   labelTextSize,
-  onChange,
   minHeight,
-  isLabelInline,
+  onChange,
 }: SwitchComponentProps): JSX.Element {
   const switchAlignClass =
     labelPosition === LabelPosition.Right ? "left" : "right";

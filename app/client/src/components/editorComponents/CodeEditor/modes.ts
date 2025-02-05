@@ -59,27 +59,35 @@ export const MULTIPLEXING_MODE_CONFIGS: MultiplexingModeConfigs = {
   },
   ...Object.values(sqlModesConfig)
     .filter((config) => config.isMultiplex)
-    .reduce((prev, current) => {
-      prev[current.mode] = {
-        outerMode: current.mime,
-        innerModes: [
-          {
-            open: BINDING_OPEN,
-            close: BINDING_CLOSE,
-          },
-        ],
-      };
-      return prev;
-    }, {} as Record<TEditorSqlModes, MultiplexingModeConfig | undefined>),
+    .reduce(
+      (prev, current) => {
+        prev[current.mode] = {
+          outerMode: current.mime,
+          innerModes: [
+            {
+              open: BINDING_OPEN,
+              close: BINDING_CLOSE,
+            },
+          ],
+        };
+
+        return prev;
+      },
+      {} as Record<TEditorSqlModes, MultiplexingModeConfig | undefined>,
+    ),
   "text/plain": undefined,
   "application/json": undefined,
   javascript: undefined,
   graphql: undefined,
+  css: undefined,
+  htmlmixed: undefined,
 };
 
 Object.keys(MULTIPLEXING_MODE_CONFIGS).forEach((key) => {
   const multiplexConfig = MULTIPLEXING_MODE_CONFIGS[key as TEditorModes];
+
   if (!multiplexConfig) return;
+
   CodeMirror.defineMode(key, function (config) {
     // @ts-expect-error: Types are not available
     return CodeMirror.multiplexingMode(
@@ -90,6 +98,7 @@ Object.keys(MULTIPLEXING_MODE_CONFIGS).forEach((key) => {
         delimStyle: "binding-brackets",
         mode: CodeMirror.getMode(config, {
           name: "javascript",
+          json: true,
         }),
       })),
     );

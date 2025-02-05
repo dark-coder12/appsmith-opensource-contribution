@@ -21,7 +21,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeType;
 import com.zaxxer.hikari.HikariDataSource;
-import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -40,6 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -221,8 +221,8 @@ public class MssqlPluginTest {
         DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
         // Set up random username and password and try to connect
         DBAuth auth = (DBAuth) dsConfig.getAuthentication();
-        auth.setUsername(new ObjectId().toString());
-        auth.setPassword(new ObjectId().toString());
+        auth.setUsername(UUID.randomUUID().toString());
+        auth.setPassword(UUID.randomUUID().toString());
 
         Mono<HikariDataSource> dsConnectionMono = mssqlPluginExecutor.datasourceCreate(dsConfig);
 
@@ -704,6 +704,72 @@ public class MssqlPluginTest {
                     assertTrue(result.getIsExecutionSuccess());
                     String expectedResultString = "[{\"encrypt_option\":\"FALSE\"}]";
                     assertEquals(expectedResultString, result.getBody().toString());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    public void testGetEndpointIdentifierForRateLimit_endpointNotPresent_ReturnsEmptyString() {
+        DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
+        // setting endpoints to empty list
+        dsConfig.setEndpoints(new ArrayList());
+
+        final Mono<String> rateLimitIdentifierMono = mssqlPluginExecutor.getEndpointIdentifierForRateLimit(dsConfig);
+
+        StepVerifier.create(rateLimitIdentifierMono)
+                .assertNext(endpointIdentifier -> {
+                    assertEquals("", endpointIdentifier);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    public void testGetEndpointIdentifierForRateLimit_HostAbsent_ReturnsEmptyString() {
+        DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
+
+        // Setting hostname and port
+        dsConfig.getEndpoints().get(0).setHost("");
+        dsConfig.getEndpoints().get(0).setPort(1433L);
+
+        final Mono<String> endPointIdentifierMono = mssqlPluginExecutor.getEndpointIdentifierForRateLimit(dsConfig);
+
+        StepVerifier.create(endPointIdentifierMono)
+                .assertNext(endpointIdentifier -> {
+                    assertEquals("", endpointIdentifier);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    public void testGetEndpointIdentifierForRateLimit_HostAndPortPresent_ReturnsCorrectString() {
+        DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
+
+        // Setting hostname and port
+        dsConfig.getEndpoints().get(0).setHost("localhost");
+        dsConfig.getEndpoints().get(0).setPort(34L);
+
+        final Mono<String> endPointIdentifierMono = mssqlPluginExecutor.getEndpointIdentifierForRateLimit(dsConfig);
+
+        StepVerifier.create(endPointIdentifierMono)
+                .assertNext(endpointIdentifier -> {
+                    assertEquals("localhost_34", endpointIdentifier);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    public void testGetEndpointIdentifierForRateLimit_HostPresentPortAbsent_ReturnsCorrectString() {
+        DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
+
+        // Setting hostname and port
+        dsConfig.getEndpoints().get(0).setHost("localhost");
+        dsConfig.getEndpoints().get(0).setPort(null);
+
+        final Mono<String> endPointIdentifierMono = mssqlPluginExecutor.getEndpointIdentifierForRateLimit(dsConfig);
+
+        StepVerifier.create(endPointIdentifierMono)
+                .assertNext(endpointIdentifier -> {
+                    assertEquals("localhost_1433", endpointIdentifier);
                 })
                 .verifyComplete();
     }

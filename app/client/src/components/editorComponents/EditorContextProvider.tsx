@@ -6,7 +6,11 @@ import { get, set } from "lodash";
 import type { WidgetOperation } from "widgets/BaseWidget";
 
 import { updateWidget } from "actions/pageActions";
-import { executeTrigger, disableDragAction } from "actions/widgetActions";
+import {
+  executeTrigger,
+  disableDragAction,
+  focusWidget,
+} from "actions/widgetActions";
 import type { BatchPropertyUpdatePayload } from "actions/controlActions";
 import {
   updateWidgetPropertyRequest,
@@ -49,17 +53,21 @@ import {
 } from "actions/autoLayoutActions";
 import { updateOneClickBindingOptionsVisibility } from "actions/oneClickBindingActions";
 
-export type EditorContextType<TCache = unknown> = {
+export interface EditorContextType<TCache = unknown> {
   executeAction?: (triggerPayload: ExecuteTriggerPayload) => void;
   updateWidget?: (
     operation: WidgetOperation,
     widgetId: string,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payload: any,
   ) => void;
   triggerEvalOnMetaUpdate?: () => void;
   updateWidgetProperty?: (
     widgetId: string,
     propertyName: string,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     propertyValue: any,
   ) => void;
   resetChildrenMetaProperty?: (widgetId: string) => void;
@@ -74,6 +82,8 @@ export type EditorContextType<TCache = unknown> = {
   syncUpdateWidgetMetaProperty?: (
     widgetId: string,
     propertyName: string,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     propertyValue: any,
   ) => void;
   syncBatchUpdateWidgetMetaProperties?: (
@@ -99,7 +109,8 @@ export type EditorContextType<TCache = unknown> = {
   selectWidgetRequest?: WidgetSelectionRequest;
   updatePositionsOnTabChange?: (widgetId: string, selectedTab: string) => void;
   updateOneClickBindingOptionsVisibility?: (visibility: boolean) => void;
-};
+  unfocusWidget?: () => void;
+}
 export const EditorContext: Context<EditorContextType> = createContext({});
 
 type EditorContextProviderProps = EditorContextType & {
@@ -126,6 +137,7 @@ const COMMON_API_METHODS: EditorContextTypeKey[] = [
   "checkContainersForAutoHeight",
   "selectWidgetRequest",
   "updatePositionsOnTabChange",
+  "unfocusWidget",
 ];
 
 const PAGE_MODE_API_METHODS: EditorContextTypeKey[] = [...COMMON_API_METHODS];
@@ -152,12 +164,15 @@ function extractFromObj<T, K extends keyof T>(
   keys: K[],
 ): [Pick<T, K>, T[K][]] {
   const deps = [] as T[K][];
-  const newObj = keys.reduce((newObj, curr) => {
-    newObj[curr] = obj[curr];
-    deps.push(obj[curr]);
+  const newObj = keys.reduce(
+    (newObj, curr) => {
+      newObj[curr] = obj[curr];
+      deps.push(obj[curr]);
 
-    return newObj;
-  }, {} as Pick<T, K>);
+      return newObj;
+    },
+    {} as Pick<T, K>,
+  );
 
   return [newObj, deps];
 }
@@ -191,6 +206,7 @@ function EditorContextProvider(props: EditorContextProviderProps) {
   // Memoize the context provider to prevent
   // unnecessary renders
   const contextValue = useMemo(() => apiMethods, apiMethodsDeps);
+
   return (
     <EditorContext.Provider value={contextValue}>
       {children}
@@ -202,6 +218,8 @@ const mapDispatchToProps = {
   updateWidgetProperty: (
     widgetId: string,
     propertyName: string,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     propertyValue: any,
   ) => updateWidgetPropertyRequest(widgetId, propertyName, propertyValue),
 
@@ -210,6 +228,8 @@ const mapDispatchToProps = {
   syncUpdateWidgetMetaProperty: (
     widgetId: string,
     propertyName: string,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     propertyValue: any,
   ) => syncUpdateWidgetMetaProperty(widgetId, propertyName, propertyValue),
   syncBatchUpdateWidgetMetaProperties: (
@@ -230,6 +250,7 @@ const mapDispatchToProps = {
   updatePositionsOnTabChange: updatePositionsOnTabChange,
   updateOneClickBindingOptionsVisibility:
     updateOneClickBindingOptionsVisibility,
+  unfocusWidget: focusWidget,
 };
 
 export default connect(null, mapDispatchToProps)(EditorContextProvider);

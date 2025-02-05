@@ -1,6 +1,9 @@
 import * as _ from "../../../../support/Objects/ObjectsCore";
+import EditorNavigation, {
+  EntityType,
+} from "../../../../support/Pages/EditorNavigation";
 
-describe("Sanitise toast error messages", () => {
+describe("Sanitise toast error messages", { tags: ["@tag.JS"] }, () => {
   before(() => {
     _.jsEditor.CreateJSObject(
       `export default {
@@ -22,26 +25,34 @@ describe("Sanitise toast error messages", () => {
         prettify: true,
       },
     );
-    _.entityExplorer.SelectEntityByName("Page1", "Pages");
+    EditorNavigation.SelectEntityByName("Page1", EntityType.Page);
     _.entityExplorer.DragDropWidgetNVerify("buttonwidget", 100, 200);
   });
 
   it("1. Does not show reference error label when js obj does not exist", () => {
-    _.entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     _.propPane.EnterJSContext("onClick", "{{a.kjbfjdfbkds()}}");
     _.agHelper.ClickButton("Submit");
-    _.agHelper.WaitUntilToastDisappear("a is not defined");
+    _.debuggerHelper.AssertDebugError("'a' is not defined.", "", true, false);
   });
 
   it("2. Does not show type error label when js obj function does not exist", () => {
-    _.entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     _.propPane.EnterJSContext("onClick", "{{JSObject1.myFun1efef()}}");
+    // Assert the lint error that shows up
+    _.debuggerHelper.AssertDebugError(
+      `"myFun1efef" doesn't exist in JSObject1`,
+      "",
+      false,
+      false,
+    );
     _.agHelper.ClickButton("Submit");
+    // Assert the execution error that shows up
     _.agHelper.WaitUntilToastDisappear("Object1.myFun1efef is not a function");
   });
 
   it("3. Does not show any label when msg is not given for post message", () => {
-    _.entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     _.propPane.EnterJSContext(
       "onClick",
       "{{postWindowMessage('', 'window', '');}}",
@@ -51,7 +62,7 @@ describe("Sanitise toast error messages", () => {
   });
 
   it("4. Does not show any label for clear watch when no location is active", () => {
-    _.entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     _.propPane.EnterJSContext(
       "onClick",
       "{{appsmith.geolocation.clearWatch();}}",
@@ -61,7 +72,7 @@ describe("Sanitise toast error messages", () => {
   });
 
   it("5. Does not show type error label when js obj function cant read properties of :", () => {
-    _.entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     _.propPane.EnterJSContext("onClick", "{{JSObject1.myFun1()}}");
     _.agHelper.ClickButton("Submit");
     _.agHelper.WaitUntilToastDisappear(
@@ -70,7 +81,7 @@ describe("Sanitise toast error messages", () => {
   });
 
   it("6. Does not show UncaughtPromiseRejection label when valid page url is not given", () => {
-    _.entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     _.propPane.ToggleJSMode("onClick", false);
     _.agHelper.GetNClick(
       _.propPane._actionCardByTitle("Execute a JS function"),

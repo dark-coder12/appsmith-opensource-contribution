@@ -3,14 +3,19 @@ import type { FeatureParams } from "./walkthroughContext";
 import { DEFAULT_DELAY } from "./walkthroughContext";
 import WalkthroughContext from "./walkthroughContext";
 import { createPortal } from "react-dom";
-import { hideIndicator } from "pages/Editor/GuidedTour/utils";
 import { retryPromise } from "utils/AppsmithUtils";
 import { useLocation } from "react-router-dom";
-import AnalyticsUtil from "utils/AnalyticsUtil";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
+import { isElementVisible } from "./utils";
+import { hideIndicator } from "components/utils/Indicator";
+import { FEATURE_FLAG } from "ee/entities/FeatureFlag";
+import { selectFeatureFlagCheck } from "ee/selectors/featureFlagsSelectors";
+import { useSelector } from "react-redux";
+import type { AppState } from "ee/reducers";
 
-const WalkthroughRenderer = lazy(() => {
+const WalkthroughRenderer = lazy(async () => {
   return retryPromise(
-    () =>
+    async () =>
       import(
         /* webpackChunkName: "walkthrough-renderer" */ "./walkthroughRenderer"
       ),
@@ -19,47 +24,78 @@ const WalkthroughRenderer = lazy(() => {
 
 const LoadingFallback = () => null;
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function Walkthrough({ children }: any) {
   const [activeWalkthrough, setActiveWalkthrough] =
     useState<FeatureParams | null>();
   const [feature, setFeature] = useState<FeatureParams[]>([]);
   const location = useLocation();
 
-  const pushFeature = (value: FeatureParams) => {
-    const alreadyExists = feature.some((f) => f.targetId === value.targetId);
-    if (!alreadyExists) {
-      if (Array.isArray(value)) {
-        setFeature((e) => [...e, ...value]);
-      } else {
-        setFeature((e) => [...e, value]);
+  const isWalkthroughDisabled = useSelector((state: AppState) =>
+    selectFeatureFlagCheck(
+      state,
+      FEATURE_FLAG.rollout_remove_feature_walkthrough_enabled,
+    ),
+  );
+
+  const pushFeature = (value: FeatureParams, prioritize = false) => {
+    if (!isWalkthroughDisabled || !!value?.forceExecution) {
+      const alreadyExists = feature.some((f) => f.targetId === value.targetId);
+
+      if (!alreadyExists) {
+        const _value = Array.isArray(value) ? [...value] : [value];
+
+        if (prioritize) {
+          // Get ahead of the queue
+          setFeature((e) => [..._value, ...e]);
+        } else {
+          setFeature((e) => [...e, ..._value]);
+        }
       }
+
+      updateActiveWalkthrough();
     }
-    updateActiveWalkthrough();
   };
 
   const popFeature = (triggeredFrom?: string) => {
     hideIndicator();
     const eventParams = activeWalkthrough?.eventParams || {};
+
     if (triggeredFrom) {
       eventParams.from = triggeredFrom;
     }
+
     AnalyticsUtil.logEvent("WALKTHROUGH_DISMISSED", eventParams);
+
     if (activeWalkthrough && activeWalkthrough.onDismiss) {
       activeWalkthrough.onDismiss();
     }
+
     setFeature((e) => {
       e.shift();
+
       return [...e];
     });
+    setActiveWalkthrough(null);
   };
 
   const updateActiveWalkthrough = () => {
+    // If a walkthrough is active we do not want to reset it
+    if (activeWalkthrough) return;
+
     if (feature.length > 0) {
-      const highlightArea = document.getElementById(feature[0].targetId);
-      setActiveWalkthrough(null);
+      const highlightArea = document.querySelector(feature[0].targetId);
+
       if (highlightArea) {
         setTimeout(() => {
-          setActiveWalkthrough(feature[0]);
+          if (isElementVisible(highlightArea as HTMLElement)) {
+            if (typeof feature[0].runBeforeWalkthrough === "function") {
+              feature[0].runBeforeWalkthrough();
+            }
+
+            setActiveWalkthrough(feature[0]);
+          }
         }, feature[0].delay || DEFAULT_DELAY);
       }
     } else {

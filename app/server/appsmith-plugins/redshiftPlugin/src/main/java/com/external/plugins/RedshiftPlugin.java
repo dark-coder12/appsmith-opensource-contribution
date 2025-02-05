@@ -53,12 +53,14 @@ import static com.appsmith.external.exceptions.pluginExceptions.BasePluginErrorM
 import static com.appsmith.external.helpers.PluginUtils.getColumnsListForJdbcPlugin;
 import static com.appsmith.external.helpers.PluginUtils.getIdenticalColumns;
 import static com.external.utils.RedshiftDatasourceUtils.createConnectionPool;
+import static org.apache.commons.lang3.StringUtils.isBlank;
 
 @Slf4j
 public class RedshiftPlugin extends BasePlugin {
     public static final String JDBC_DRIVER = "com.amazon.redshift.jdbc.Driver";
     private static final String DATE_COLUMN_TYPE_NAME = "date";
     public static RedshiftDatasourceUtils redshiftDatasourceUtils = new RedshiftDatasourceUtils();
+    public static final Long REDSHIFT_DEFAULT_PORT = 5439L;
 
     public RedshiftPlugin(PluginWrapper wrapper) {
         super(wrapper);
@@ -193,6 +195,7 @@ public class RedshiftPlugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": execute() called for Redshift plugin.");
             String query = actionConfiguration.getBody();
             List<RequestParamDTO> requestParams =
                     List.of(new RequestParamDTO(ACTION_CONFIGURATION_BODY, query, null, null, null));
@@ -269,7 +272,8 @@ public class RedshiftPlugin extends BasePlugin {
                                 try {
                                     resultSet.close();
                                 } catch (SQLException e) {
-                                    log.error("Error closing Redshift ResultSet", e);
+                                    log.error("Error closing Redshift ResultSet");
+                                    e.printStackTrace();
                                 }
                             }
 
@@ -277,14 +281,16 @@ public class RedshiftPlugin extends BasePlugin {
                                 try {
                                     statement.close();
                                 } catch (SQLException e) {
-                                    log.error("Error closing Redshift Statement", e);
+                                    log.error("Error closing Redshift Statement");
+                                    e.printStackTrace();
                                 }
                             }
 
                             try {
                                 connection.close();
                             } catch (SQLException e) {
-                                log.error("Error closing Redshift Connection", e);
+                                log.error("Error closing Redshift Connection");
+                                e.printStackTrace();
                             }
                         }
 
@@ -292,7 +298,8 @@ public class RedshiftPlugin extends BasePlugin {
                         result.setBody(objectMapper.valueToTree(rowsList));
                         result.setMessages(populateHintMessages(columnsList));
                         result.setIsExecutionSuccess(true);
-                        log.debug("In RedshiftPlugin, got action execution result");
+                        log.debug(Thread.currentThread().getName()
+                                + ": In the RedshiftPlugin, got action execution result");
                         return Mono.just(result);
                     })
                     .flatMap(obj -> obj)
@@ -325,6 +332,7 @@ public class RedshiftPlugin extends BasePlugin {
         }
 
         public void printConnectionPoolStatus(HikariDataSource connectionPool, boolean isFetchingStructure) {
+            log.debug(Thread.currentThread().getName() + ": printConnectionPoolStatus() called for Redshift plugin.");
             HikariPoolMXBean poolProxy = connectionPool.getHikariPoolMXBean();
             int idleConnections = poolProxy.getIdleConnections();
             int activeConnections = poolProxy.getActiveConnections();
@@ -332,12 +340,15 @@ public class RedshiftPlugin extends BasePlugin {
             int threadsAwaitingConnection = poolProxy.getThreadsAwaitingConnection();
             log.debug(Thread.currentThread().getName()
                     + (isFetchingStructure
-                            ? "Before fetching Redshift db" + " structure."
-                            : "Before executing Redshift query.")
-                    + " Hikari Pool stats : " + " active - "
-                    + activeConnections + ", idle - "
-                    + idleConnections + ", awaiting - "
-                    + threadsAwaitingConnection + ", total - "
+                            ? " Before fetching Redshift db structure."
+                            : " Before executing Redshift query.")
+                    + " Hikari Pool stats: active - "
+                    + activeConnections
+                    + ", idle - "
+                    + idleConnections
+                    + ", awaiting - "
+                    + threadsAwaitingConnection
+                    + ", total - "
                     + totalConnections);
         }
 
@@ -358,6 +369,7 @@ public class RedshiftPlugin extends BasePlugin {
 
         @Override
         public Mono<HikariDataSource> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for Redshift plugin.");
             try {
                 Class.forName(JDBC_DRIVER);
             } catch (ClassNotFoundException e) {
@@ -376,6 +388,7 @@ public class RedshiftPlugin extends BasePlugin {
 
         @Override
         public void datasourceDestroy(HikariDataSource connectionPool) {
+            log.debug(Thread.currentThread().getName() + ": datasourceDestroy() called for Redshift plugin.");
             if (connectionPool != null) {
                 connectionPool.close();
             }
@@ -383,6 +396,7 @@ public class RedshiftPlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(@NonNull DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for Redshift plugin.");
             Set<String> invalids = new HashSet<>();
 
             if (CollectionUtils.isEmpty(datasourceConfiguration.getEndpoints())) {
@@ -423,6 +437,25 @@ public class RedshiftPlugin extends BasePlugin {
             }
 
             return invalids;
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName()
+                    + ": getEndpointIdentifierForRateLimit() called for Redshift plugin.");
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                Long port = endpoints.get(0).getPort();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_" + ObjectUtils.defaultIfNull(port, REDSHIFT_DEFAULT_PORT);
+                }
+            }
+            return Mono.just(identifier);
         }
 
         private void getTablesInfo(ResultSet columnsResultSet, Map<String, DatasourceStructure.Table> tablesByName)
@@ -557,30 +590,33 @@ public class RedshiftPlugin extends BasePlugin {
 
                 final String quotedTableName = table.getName().replaceFirst("\\.(\\w+)", ".\"$1\"");
                 table.getTemplates()
-                        .addAll(
-                                List.of(
-                                        new DatasourceStructure.Template(
-                                                "SELECT", "SELECT * FROM " + quotedTableName + " LIMIT 10;"),
-                                        new DatasourceStructure.Template(
-                                                "INSERT",
-                                                "INSERT INTO " + quotedTableName
-                                                        + " (" + String.join(", ", columnNames) + ")\n"
-                                                        + "  VALUES (" + String.join(", ", columnValues) + ");"),
-                                        new DatasourceStructure.Template(
-                                                "UPDATE",
-                                                "UPDATE " + quotedTableName + " SET"
-                                                        + setFragments.toString() + "\n"
-                                                        + "  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may update every row in the table!"),
-                                        new DatasourceStructure.Template(
-                                                "DELETE",
-                                                "DELETE FROM " + quotedTableName
-                                                        + "\n  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may delete everything in the table!")));
+                        .addAll(List.of(
+                                new DatasourceStructure.Template(
+                                        "SELECT", "SELECT * FROM " + quotedTableName + " LIMIT 10;", true),
+                                new DatasourceStructure.Template(
+                                        "INSERT",
+                                        "INSERT INTO " + quotedTableName
+                                                + " (" + String.join(", ", columnNames) + ")\n"
+                                                + "  VALUES (" + String.join(", ", columnValues) + ");",
+                                        false),
+                                new DatasourceStructure.Template(
+                                        "UPDATE",
+                                        "UPDATE " + quotedTableName + " SET"
+                                                + setFragments.toString() + "\n"
+                                                + "  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may update every row in the table!",
+                                        false),
+                                new DatasourceStructure.Template(
+                                        "DELETE",
+                                        "DELETE FROM " + quotedTableName
+                                                + "\n  WHERE 1 = 0; -- Specify a valid condition here. Removing the condition may delete everything in the table!",
+                                        false)));
             }
         }
 
         @Override
         public Mono<DatasourceStructure> getStructure(
                 HikariDataSource connectionPool, DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": getStructure() called for Redshift plugin.");
             final DatasourceStructure structure = new DatasourceStructure();
             final Map<String, DatasourceStructure.Table> tablesByName = new LinkedHashMap<>();
             final Map<String, DatasourceStructure.Key> keyRegistry = new HashMap<>();
@@ -651,7 +687,8 @@ public class RedshiftPlugin extends BasePlugin {
                             try {
                                 connection.close();
                             } catch (SQLException e) {
-                                log.error("Error closing Redshift Connection", e);
+                                log.error("Error closing Redshift Connection");
+                                e.printStackTrace();
                             }
                         }
 

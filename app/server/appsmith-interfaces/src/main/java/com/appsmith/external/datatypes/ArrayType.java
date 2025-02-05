@@ -3,6 +3,7 @@ package com.appsmith.external.datatypes;
 import com.appsmith.external.constants.DataType;
 import com.appsmith.external.exceptions.pluginExceptions.AppsmithPluginError;
 import com.appsmith.external.exceptions.pluginExceptions.AppsmithPluginException;
+import com.appsmith.util.SerializationUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.minidev.json.JSONArray;
@@ -11,8 +12,7 @@ import reactor.core.Exceptions;
 
 public class ArrayType implements AppsmithType {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final JSONParser parser = new JSONParser(JSONParser.MODE_PERMISSIVE);
+    private static final ObjectMapper objectMapper = SerializationUtils.getObjectMapperWithSourceInLocationEnabled();
 
     @Override
     public boolean test(String s) {
@@ -23,6 +23,8 @@ public class ArrayType implements AppsmithType {
 
     @Override
     public String performSmartSubstitution(String s) {
+        JSONParser parser = new JSONParser(JSONParser.MODE_PERMISSIVE);
+
         try {
             JSONArray jsonArray = (JSONArray) parser.parse(s);
             return objectMapper.writeValueAsString(jsonArray);

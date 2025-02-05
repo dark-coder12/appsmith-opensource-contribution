@@ -87,6 +87,8 @@ import static com.external.plugins.constants.FieldName.BUCKET;
 import static com.external.plugins.constants.FieldName.COMMAND;
 import static com.external.plugins.constants.FieldName.CREATE_DATATYPE;
 import static com.external.plugins.constants.FieldName.CREATE_EXPIRY;
+import static com.external.plugins.constants.FieldName.KEY_BUCKET;
+import static com.external.plugins.constants.FieldName.KEY_DATA;
 import static com.external.plugins.constants.FieldName.LIST_EXPIRY;
 import static com.external.plugins.constants.FieldName.LIST_PAGINATE;
 import static com.external.plugins.constants.FieldName.LIST_PREFIX;
@@ -101,8 +103,10 @@ import static com.external.plugins.constants.S3PluginConstants.ACCESS_DENIED_ERR
 import static com.external.plugins.constants.S3PluginConstants.AWS_S3_SERVICE_PROVIDER;
 import static com.external.plugins.constants.S3PluginConstants.BASE64_DELIMITER;
 import static com.external.plugins.constants.S3PluginConstants.CUSTOM_ENDPOINT_INDEX;
+import static com.external.plugins.constants.S3PluginConstants.DEFAULT_BUCKET_PROPERTY_INDEX;
 import static com.external.plugins.constants.S3PluginConstants.DEFAULT_FILE_NAME;
 import static com.external.plugins.constants.S3PluginConstants.DEFAULT_URL_EXPIRY_IN_MINUTES;
+import static com.external.plugins.constants.S3PluginConstants.GOOGLE_CLOUD_SERVICE_PROVIDER;
 import static com.external.plugins.constants.S3PluginConstants.NO;
 import static com.external.plugins.constants.S3PluginConstants.S3_DRIVER;
 import static com.external.plugins.constants.S3PluginConstants.S3_SERVICE_PROVIDER_PROPERTY_INDEX;
@@ -110,6 +114,7 @@ import static com.external.plugins.constants.S3PluginConstants.YES;
 import static com.external.utils.DatasourceUtils.getS3ClientBuilder;
 import static com.external.utils.TemplateUtils.getTemplates;
 import static java.lang.Boolean.TRUE;
+import static org.apache.commons.collections.CollectionUtils.isEmpty;
 
 @Slf4j
 public class AmazonS3Plugin extends BasePlugin {
@@ -209,6 +214,36 @@ public class AmazonS3Plugin extends BasePlugin {
             }
 
             return urlList;
+        }
+
+        /**
+         * This function returns the unsigned file urls for the files present in the body
+         */
+        ArrayList<String> createFileUrlsFromBody(AmazonS3 connection, String bucketName, String path, String body)
+                throws AppsmithPluginException {
+            List<MultipartFormDataDTO> multipartFormDataDTOs;
+            ArrayList<String> urlList = new ArrayList<>();
+            try {
+                multipartFormDataDTOs = Arrays.asList(objectMapper.readValue(body, MultipartFormDataDTO[].class));
+            } catch (IOException e) {
+                throw new AppsmithPluginException(
+                        AppsmithPluginError.PLUGIN_EXECUTE_ARGUMENT_ERROR,
+                        S3ErrorMessages.UNPARSABLE_CONTENT_ERROR_MSG,
+                        e.getMessage());
+            }
+            multipartFormDataDTOs.forEach(multipartFormDataDTO -> {
+                final String filePath = path + multipartFormDataDTO.getName();
+
+                urlList.add(connection.getUrl(bucketName, filePath).toString());
+            });
+            return urlList;
+        }
+
+        /**
+         * This function returns the unsigned file url for the file path
+         */
+        String createFileUrl(AmazonS3 connection, String bucketName, String path) {
+            return connection.getUrl(bucketName, path).toString();
         }
 
         /*
@@ -381,6 +416,7 @@ public class AmazonS3Plugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": executeParameterized() called for AmazonS3 plugin.");
             final Map<String, Object> formData = actionConfiguration.getFormData();
             List<Map.Entry<String, String>> parameters = new ArrayList<>();
 
@@ -429,6 +465,7 @@ public class AmazonS3Plugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": executeCommon() called for AmazonS3 plugin.");
             final String[] query = new String[1];
             Map<String, Object> requestProperties = new HashMap<>();
             List<RequestParamDTO> requestParams = new ArrayList<>();
@@ -504,6 +541,8 @@ public class AmazonS3Plugin extends BasePlugin {
                         Object actionResult;
                         switch (s3Action) {
                             case LIST:
+                                log.debug(
+                                        Thread.currentThread().getName() + ": LIST action called for AmazonS3 plugin.");
                                 String prefix = getDataValueSafelyFromFormData(formData, LIST_PREFIX, STRING_TYPE, "");
                                 requestParams.add(new RequestParamDTO(LIST_PREFIX, prefix, null, null, null));
 
@@ -602,6 +641,8 @@ public class AmazonS3Plugin extends BasePlugin {
 
                                 break;
                             case UPLOAD_FILE_FROM_BODY: {
+                                log.debug(Thread.currentThread().getName()
+                                        + ": UPLOAD_FILE_FROM_BODY action called for AmazonS3 plugin.");
                                 requestParams.add(
                                         new RequestParamDTO(ACTION_CONFIGURATION_PATH, path, null, null, null));
 
@@ -640,9 +681,12 @@ public class AmazonS3Plugin extends BasePlugin {
                                     signedUrl = uploadFileFromBody(
                                             connection, bucketName, path, body, false, expiryDateTime);
                                 }
+                                // gets the unsigned url for the file
+                                String url = createFileUrl(connection, bucketName, path);
                                 actionResult = new HashMap<String, Object>();
                                 ((HashMap<String, Object>) actionResult).put("signedUrl", signedUrl);
                                 ((HashMap<String, Object>) actionResult).put("urlExpiryDate", expiryDateTimeString);
+                                ((HashMap<String, Object>) actionResult).put("url", url);
                                 requestParams.add(
                                         new RequestParamDTO(CREATE_EXPIRY, expiryDateTimeString, null, null, null));
                                 requestParams.add(
@@ -650,6 +694,8 @@ public class AmazonS3Plugin extends BasePlugin {
                                 break;
                             }
                             case UPLOAD_MULTIPLE_FILES_FROM_BODY: {
+                                log.debug(Thread.currentThread().getName()
+                                        + ": UPLOAD_MULTIPLE_FILES_FROM_BODY action called for AmazonS3 plugin.");
                                 requestParams.add(
                                         new RequestParamDTO(ACTION_CONFIGURATION_PATH, path, null, null, null));
 
@@ -691,6 +737,9 @@ public class AmazonS3Plugin extends BasePlugin {
                                 actionResult = new HashMap<String, Object>();
                                 ((HashMap<String, Object>) actionResult).put("signedUrls", signedUrls);
                                 ((HashMap<String, Object>) actionResult).put("urlExpiryDate", expiryDateTimeString);
+                                // Adds the unsigned urls in the response
+                                ((HashMap<String, Object>) actionResult)
+                                        .put("urls", createFileUrlsFromBody(connection, bucketName, path, body));
 
                                 requestParams.add(
                                         new RequestParamDTO(CREATE_EXPIRY, expiryDateTimeString, null, null, null));
@@ -699,6 +748,8 @@ public class AmazonS3Plugin extends BasePlugin {
                                 break;
                             }
                             case READ_FILE:
+                                log.debug(Thread.currentThread().getName()
+                                        + ": READ_FILE action called for AmazonS3 plugin.");
                                 requestParams.add(
                                         new RequestParamDTO(ACTION_CONFIGURATION_PATH, path, null, null, null));
 
@@ -716,6 +767,8 @@ public class AmazonS3Plugin extends BasePlugin {
                                 actionResult = Map.of("fileData", result);
                                 break;
                             case DELETE_FILE:
+                                log.debug(Thread.currentThread().getName()
+                                        + ": DELETE_FILE action called for AmazonS3 plugin.");
                                 requestParams.add(
                                         new RequestParamDTO(ACTION_CONFIGURATION_PATH, path, null, null, null));
 
@@ -727,10 +780,17 @@ public class AmazonS3Plugin extends BasePlugin {
                                 actionResult = Map.of("status", "File deleted successfully");
                                 break;
                             case DELETE_MULTIPLE_FILES:
+                                log.debug(Thread.currentThread().getName()
+                                        + ": DELETE_MULTIPLE_FILES action called for AmazonS3 plugin.");
                                 requestParams.add(
                                         new RequestParamDTO(ACTION_CONFIGURATION_PATH, path, null, null, null));
 
-                                deleteMultipleObjects(connection, bucketName, path);
+                                List<Property> properties = datasourceConfiguration.getProperties();
+                                String s3Provider = (String) properties
+                                        .get(S3_SERVICE_PROVIDER_PROPERTY_INDEX)
+                                        .getValue();
+
+                                deleteMultipleObjects(s3Provider, connection, bucketName, path);
                                 actionResult = Map.of("status", "All files deleted successfully");
                                 break;
                                 /**
@@ -779,6 +839,8 @@ public class AmazonS3Plugin extends BasePlugin {
                     })
                     // Now set the request in the result to be returned to the server
                     .map(actionExecutionResult -> {
+                        log.debug(Thread.currentThread().getName()
+                                + ": Setting the actionExecutionResult for AmazonS3 plugin.");
                         ActionExecutionRequest actionExecutionRequest = new ActionExecutionRequest();
                         actionExecutionRequest.setQuery(query[0]);
                         actionExecutionRequest.setProperties(requestProperties);
@@ -789,7 +851,7 @@ public class AmazonS3Plugin extends BasePlugin {
                     .subscribeOn(scheduler);
         }
 
-        private void deleteMultipleObjects(AmazonS3 connection, String bucketName, String path)
+        private void deleteMultipleObjects(String s3Provider, AmazonS3 connection, String bucketName, String path)
                 throws AppsmithPluginException {
             List<String> listOfFiles;
             try {
@@ -803,7 +865,13 @@ public class AmazonS3Plugin extends BasePlugin {
 
             DeleteObjectsRequest deleteObjectsRequest = getDeleteObjectsRequest(bucketName, listOfFiles);
             try {
-                connection.deleteObjects(deleteObjectsRequest);
+                if (GOOGLE_CLOUD_SERVICE_PROVIDER.equals(s3Provider)) {
+                    for (String filePath : listOfFiles) {
+                        connection.deleteObject(bucketName, filePath);
+                    }
+                } else {
+                    connection.deleteObjects(deleteObjectsRequest);
+                }
             } catch (SdkClientException e) {
                 throw new AppsmithPluginException(
                         S3PluginError.AMAZON_S3_QUERY_EXECUTION_FAILED,
@@ -821,7 +889,7 @@ public class AmazonS3Plugin extends BasePlugin {
 
         @Override
         public Mono<AmazonS3> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
-
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for AmazonS3 plugin.");
             try {
                 Class.forName(S3_DRIVER);
             } catch (ClassNotFoundException e) {
@@ -849,13 +917,14 @@ public class AmazonS3Plugin extends BasePlugin {
 
         @Override
         public void datasourceDestroy(AmazonS3 connection) {
+            log.debug(Thread.currentThread().getName() + ": datasourceDestroy() called for AmazonS3 plugin.");
             if (connection != null) {
                 Mono.fromCallable(() -> {
                             connection.shutdown();
                             return connection;
                         })
                         .onErrorResume(exception -> {
-                            log.debug("Error closing S3 connection.", exception);
+                            log.error("Error closing S3 connection.", exception.getMessage());
                             return Mono.empty();
                         })
                         .subscribeOn(scheduler)
@@ -865,6 +934,7 @@ public class AmazonS3Plugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for AmazonS3 plugin.");
             Set<String> invalids = new HashSet<>();
 
             if (datasourceConfiguration == null || datasourceConfiguration.getAuthentication() == null) {
@@ -909,36 +979,102 @@ public class AmazonS3Plugin extends BasePlugin {
                 invalids.add(S3ErrorMessages.DS_MANDATORY_PARAMETER_ENDPOINT_URL_MISSING_ERROR_MSG);
             }
 
+            if (datasourceConfiguration != null) {
+                String serviceProvider = (String)
+                        properties.get(S3_SERVICE_PROVIDER_PROPERTY_INDEX).getValue();
+                if (GOOGLE_CLOUD_SERVICE_PROVIDER.equals(serviceProvider)) {
+                    String defaultBucket = (String)
+                            properties.get(DEFAULT_BUCKET_PROPERTY_INDEX).getValue();
+                    if (StringUtils.isNullOrEmpty(defaultBucket)) {
+                        invalids.add(S3ErrorMessages.DS_MANDATORY_PARAMETER_DEFAULT_BUCKET_MISSING_ERROR_MSG);
+                    }
+                }
+            }
+
             return invalids;
         }
 
         @Override
-        public Mono<DatasourceTestResult> testDatasource(AmazonS3 connection) {
-            return Mono.fromCallable(() -> {
-                        /*
-                         * - Please note that as of 28 Jan 2021, the way AmazonS3 client works, creating a connection
-                         *   object with wrong credentials does not throw any exception.
-                         * - Hence, adding a listBuckets() method call to test the connection.
-                         */
-                        connection.listBuckets();
-                        return new DatasourceTestResult();
-                    })
-                    .onErrorResume(error -> {
-                        if (error instanceof AmazonS3Exception
-                                && ACCESS_DENIED_ERROR_CODE.equals(((AmazonS3Exception) error).getErrorCode())) {
-                            /**
-                             * Sometimes a valid account credential may not have permission to run listBuckets action
-                             * . In this case `AccessDenied` error is returned.
-                             * That fact that the credentials caused `AccessDenied` error instead of invalid access key
-                             * id or signature mismatch error means that the credentials are valid, we are able to
-                             * establish a connection as well, but the account does not have permission to run
-                             * listBuckets.
-                             */
-                            return Mono.just(new DatasourceTestResult());
-                        }
+        public Mono<DatasourceTestResult> testDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": testDatasource() called for AmazonS3 plugin.");
+            if (datasourceConfiguration == null) {
+                return Mono.just(new DatasourceTestResult(
+                        S3ErrorMessages.DS_AT_LEAST_ONE_MANDATORY_PARAMETER_MISSING_ERROR_MSG));
+            }
 
-                        return Mono.just(new DatasourceTestResult(amazonS3ErrorUtils.getReadableError(error)));
-                    });
+            List<Property> properties = datasourceConfiguration.getProperties();
+            String s3Provider =
+                    (String) properties.get(S3_SERVICE_PROVIDER_PROPERTY_INDEX).getValue();
+
+            // Handle Google Cloud Storage in a separate method if necessary
+            if (GOOGLE_CLOUD_SERVICE_PROVIDER.equals(s3Provider)) {
+                return testGoogleCloudStorage(datasourceConfiguration);
+            }
+
+            // For Amazon S3 or other providers, perform a standard test by listing buckets in Amazon S3
+            return datasourceCreate(datasourceConfiguration)
+                    .flatMap(connection -> Mono.fromCallable(() -> {
+                                /*
+                                 * - Please note that as of 28 Jan 2021, the way AmazonS3 client works, creating a connection
+                                 *   object with wrong credentials does not throw any exception.
+                                 * - Hence, adding a listBuckets() method call to test the connection.
+                                 */
+                                log.debug(Thread.currentThread().getName()
+                                        + ": listBuckets() called for AmazonS3 plugin.");
+                                connection.listBuckets();
+                                return new DatasourceTestResult();
+                            })
+                            .onErrorResume(error -> {
+                                if (error instanceof AmazonS3Exception
+                                        && ACCESS_DENIED_ERROR_CODE.equals(
+                                                ((AmazonS3Exception) error).getErrorCode())) {
+                                    /**
+                                     * Sometimes a valid account credential may not have permission to run listBuckets action
+                                     * . In this case `AccessDenied` error is returned.
+                                     * That fact that the credentials caused `AccessDenied` error instead of invalid access key
+                                     * id or signature mismatch error means that the credentials are valid, we are able to
+                                     * establish a connection as well, but the account does not have permission to run
+                                     * listBuckets.
+                                     */
+                                    return Mono.just(new DatasourceTestResult());
+                                }
+
+                                return Mono.just(new DatasourceTestResult(amazonS3ErrorUtils.getReadableError(error)));
+                            })
+                            .doFinally(signalType -> connection.shutdown()))
+                    .onErrorResume(error -> Mono.just(new DatasourceTestResult(error.getMessage())))
+                    .subscribeOn(scheduler);
+        }
+
+        private Mono<DatasourceTestResult> testGoogleCloudStorage(DatasourceConfiguration datasourceConfiguration) {
+            List<Property> properties = datasourceConfiguration.getProperties();
+            String defaultBucket =
+                    (String) properties.get(DEFAULT_BUCKET_PROPERTY_INDEX).getValue();
+            if (StringUtils.isNullOrEmpty(defaultBucket)) {
+                return Mono.just(new DatasourceTestResult(
+                        S3ErrorMessages.DS_MANDATORY_PARAMETER_DEFAULT_BUCKET_MISSING_ERROR_MSG));
+            }
+
+            return datasourceCreate(datasourceConfiguration)
+                    .flatMap(connection -> Mono.fromCallable(() -> {
+                                connection.listObjects(defaultBucket);
+                                log.debug(Thread.currentThread().getName()
+                                        + ": connection.listObjects() called for AmazonS3 plugin.");
+                                return new DatasourceTestResult();
+                            })
+                            .onErrorResume(error -> {
+                                if (error instanceof AmazonS3Exception
+                                        && ((AmazonS3Exception) error).getStatusCode() == 404) {
+                                    return Mono.just(
+                                            new DatasourceTestResult(S3ErrorMessages.NON_EXITED_BUCKET_ERROR_MSG));
+                                } else {
+                                    return Mono.just(
+                                            new DatasourceTestResult(amazonS3ErrorUtils.getReadableError(error)));
+                                }
+                            })
+                            .doFinally(signalType -> connection.shutdown()))
+                    .onErrorResume(error -> Mono.just(new DatasourceTestResult(error.getMessage())))
+                    .subscribeOn(scheduler);
         }
 
         /**
@@ -949,9 +1085,12 @@ public class AmazonS3Plugin extends BasePlugin {
         public Mono<DatasourceStructure> getStructure(
                 AmazonS3 connection, DatasourceConfiguration datasourceConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": getStructure() called for AmazonS3 plugin.");
             return Mono.fromSupplier(() -> {
                         List<DatasourceStructure.Table> tableList;
                         try {
+                            log.debug(Thread.currentThread().getName()
+                                    + ": connection.listBuckets() called for AmazonS3 plugin.");
                             tableList = connection.listBuckets().stream()
                                     /* Get name of each bucket */
                                     .map(Bucket::getName)
@@ -1000,6 +1139,7 @@ public class AmazonS3Plugin extends BasePlugin {
                 Object... args) {
             String jsonBody = (String) input;
             Param param = (Param) args[0];
+            log.debug(Thread.currentThread().getName() + ": substituteValueInInput() called for AmazonS3 plugin.");
             return DataTypeStringUtils.jsonSmartReplacementPlaceholderWithValue(
                     jsonBody, value, null, insertedParams, null, param);
         }
@@ -1034,6 +1174,31 @@ public class AmazonS3Plugin extends BasePlugin {
             transferManager
                     .upload(bucketName, path, inputStream, objectMetadata)
                     .waitForUploadResult();
+        }
+
+        /**
+         * This method is supposed to provide help with any update required to template queries that are used to create
+         * the actual select, updated, insert etc. queries as part of the generate CRUD page feature. Any plugin that
+         * needs special handling should override this method. e.g. in case of the S3 plugin some special handling is
+         * required because (a) it uses UQI config form (b) it has concept of bucket instead of table.
+         */
+        @Override
+        public Mono<Void> sanitizeGenerateCRUDPageTemplateInfo(
+                List<ActionConfiguration> actionConfigurationList, Object... args) {
+            log.debug(Thread.currentThread().getName()
+                    + ": sanitizeGenerateCRUDPageTemplateInfo() called for AmazonS3 plugin.");
+            if (isEmpty(actionConfigurationList)) {
+                return Mono.empty();
+            }
+
+            /* Add mapping to replace template bucket name with user chosen bucket everywhere in the template */
+            Map<String, String> mappedColumnsAndTableName = (Map<String, String>) args[0];
+            final String userSelectedBucketName = (String) args[1];
+            Map<String, Object> formData = actionConfigurationList.get(0).getFormData();
+            mappedColumnsAndTableName.put(
+                    (String) ((Map<?, ?>) formData.get(KEY_BUCKET)).get(KEY_DATA), userSelectedBucketName);
+
+            return Mono.empty();
         }
     }
 }

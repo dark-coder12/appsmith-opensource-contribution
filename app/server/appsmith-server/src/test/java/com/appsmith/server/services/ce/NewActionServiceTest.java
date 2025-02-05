@@ -6,16 +6,14 @@ import com.appsmith.server.acl.AclPermission;
 import com.appsmith.server.acl.PolicyGenerator;
 import com.appsmith.server.domains.NewAction;
 import com.appsmith.server.domains.PermissionGroup;
+import com.appsmith.server.newactions.base.NewActionService;
 import com.appsmith.server.repositories.NewActionRepository;
 import com.appsmith.server.repositories.PermissionGroupRepository;
-import com.appsmith.server.services.NewActionService;
 import com.appsmith.server.solutions.ActionPermission;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.test.context.support.WithUserDetails;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -27,7 +25,6 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ExtendWith(SpringExtension.class)
 public class NewActionServiceTest {
 
     @Autowired
@@ -91,7 +88,7 @@ public class NewActionServiceTest {
 
         StepVerifier.create(actionListMono)
                 .assertNext(actions -> {
-                    assertThat(actions.size()).isEqualTo(3);
+                    assertThat(actions).hasSize(3);
                     actions.forEach(action -> {
                         assertThat(action.getPublishedAction()).isNotNull();
                         // we've set name and pageId so these fields should not be null in edit mode

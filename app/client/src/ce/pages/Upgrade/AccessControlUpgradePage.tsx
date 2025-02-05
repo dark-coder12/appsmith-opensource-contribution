@@ -16,13 +16,16 @@ import {
   RESTRICT_PUBLIC_EXPOSURE_DETAIL1,
   SECURITY_APPS_LEAST_PRIVILEGE,
   SECURITY_APPS_LEAST_PRIVILEGE_DETAIL1,
-} from "@appsmith/constants/messages";
+} from "ee/constants/messages";
 import useOnUpgrade from "utils/hooks/useOnUpgrade";
+import { RampFeature, RampSection } from "utils/ProductRamps/RampsControlList";
 
 export function AccessControlUpgradePage() {
   const { onUpgrade } = useOnUpgrade({
     logEventName: "GAC_UPGRADE_CLICK_ADMIN_SETTINGS",
     logEventData: { source: "Granular Access Control" },
+    featureName: RampFeature.Gac,
+    sectionName: RampSection.AdminSettings,
   });
 
   const header: Header = {
@@ -76,5 +79,6 @@ export function AccessControlUpgradePage() {
     message: createMessage(ACCESS_CONTROL_UPGRADE_PAGE_FOOTER),
   };
   const props = { header, carousel, footer };
+
   return <UpgradePage {...props} />;
 }

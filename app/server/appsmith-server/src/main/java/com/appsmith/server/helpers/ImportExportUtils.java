@@ -1,13 +1,18 @@
 package com.appsmith.server.helpers;
 
+import com.appsmith.external.dtos.ModifiedResources;
 import com.appsmith.external.models.ActionDTO;
 import com.appsmith.external.models.Datasource;
+import com.appsmith.server.constants.FieldName;
 import com.appsmith.server.domains.Application;
+import com.appsmith.server.dtos.ApplicationJson;
+import com.appsmith.server.dtos.ArtifactExchangeJson;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.mongodb.MongoTransactionException;
 import org.springframework.transaction.TransactionException;
 
+import java.time.Instant;
 import java.util.Map;
 
 import static com.appsmith.external.helpers.AppsmithBeanUtils.copyNestedNonNullProperties;
@@ -77,6 +82,11 @@ public class ImportExportUtils {
     public static void setPropertiesToExistingApplication(
             Application importedApplication, Application existingApplication) {
         importedApplication.setId(existingApplication.getId());
+
+        // Since we don't want to merge the ApplicationDetailObjects we would just assign the imported values directly
+        existingApplication.setPublishedApplicationDetail(importedApplication.getPublishedApplicationDetail());
+        existingApplication.setUnpublishedApplicationDetail(importedApplication.getUnpublishedApplicationDetail());
+
         // For the existing application we don't need to default
         // value of the flag
         // The isPublic flag has a default value as false and this
@@ -88,12 +98,6 @@ public class ImportExportUtils {
         // These properties are not present in the application when it is created, hence the initial commit
         // to git doesn't contain these keys and if we want to discard the changes, the function
         // copyNestedNonNullProperties ignore these properties and the changes are not discarded
-        if (importedApplication.getUnpublishedApplicationDetail() == null) {
-            existingApplication.setUnpublishedApplicationDetail(null);
-        }
-        if (importedApplication.getPublishedApplicationDetail() == null) {
-            existingApplication.setPublishedApplicationDetail(null);
-        }
         if (importedApplication.getPublishedAppLayout() == null) {
             existingApplication.setPublishedAppLayout(null);
         }
@@ -114,5 +118,33 @@ public class ImportExportUtils {
     public static void setPublishedApplicationProperties(Application importedApplication) {
         importedApplication.setPublishedApplicationDetail(importedApplication.getUnpublishedApplicationDetail());
         importedApplication.setPublishedAppLayout(importedApplication.getUnpublishedAppLayout());
+    }
+
+    public static boolean isPageNameInUpdatedList(ApplicationJson applicationJson, String pageName) {
+        ModifiedResources modifiedResources = applicationJson.getModifiedResources();
+        if (modifiedResources == null) {
+            return false;
+        }
+        return pageName != null && modifiedResources.isResourceUpdated(FieldName.PAGE_LIST, pageName);
+    }
+
+    public static boolean isContextNameInUpdatedList(
+            ArtifactExchangeJson artifactExchangeJson, String contextName, String contextPath) {
+        ModifiedResources modifiedResources = artifactExchangeJson.getModifiedResources();
+        if (modifiedResources == null) {
+            return false;
+        }
+        return contextName != null && modifiedResources.isResourceUpdated(contextPath, contextName);
+    }
+
+    public static boolean isDatasourceUpdatedSinceLastCommit(
+            Map<String, Instant> datasourceNameToUpdatedAtMap,
+            ActionDTO actionDTO,
+            Instant applicationLastCommittedAt) {
+        String datasourceName = actionDTO.getDatasource().getId();
+        Instant datasourceUpdatedAt = datasourceName != null ? datasourceNameToUpdatedAtMap.get(datasourceName) : null;
+        return datasourceUpdatedAt != null
+                && applicationLastCommittedAt != null
+                && datasourceUpdatedAt.isAfter(applicationLastCommittedAt);
     }
 }

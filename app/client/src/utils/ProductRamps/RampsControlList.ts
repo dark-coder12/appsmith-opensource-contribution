@@ -5,6 +5,7 @@ export const RAMP_NAME = {
   CUSTOM_ROLES: "CUSTOM_ROLES",
   PRIVATE_EMBED: "PRIVATE_EMBED",
   MULTIPLE_ENV: "MULTIPLE_ENV",
+  PREMIUM_DATASOURCES: "PREMIUM_DATASOURCES",
 };
 
 export const RAMP_FOR_ROLES = {
@@ -21,12 +22,19 @@ export enum RampSection {
   AppSettings = "app_settings",
   BottomBarEnvSwitcher = "bottom_bar_env_switcher",
   DSEditor = "ds_editor",
+  AdminSettings = "admin_settings",
+  PremiumDatasourcesContactModal = "premium_datasources_contact_modal",
 }
 
 export enum RampFeature {
   PrivateEmbeds = "private_embeds",
   Gac = "gac",
   MultipleEnv = "multiple_env",
+  AuditLogs = "audit_logs",
+  Branding = "branding",
+  Sso = "sso",
+  Provisioning = "provisioning",
+  PremiumDatasources = "premium_datasources",
 }
 
 export const INVITE_USER_TO_APP: SupportedRampsType = {

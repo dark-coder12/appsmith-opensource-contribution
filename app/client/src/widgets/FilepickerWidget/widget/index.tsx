@@ -1,22 +1,29 @@
-import React from "react";
 import type { Uppy } from "@uppy/core";
+import type Dashboard from "@uppy/dashboard";
+import type {
+  AutocompletionDefinitions,
+  PropertyUpdates,
+  SnipingModeProperty,
+  WidgetCallout,
+} from "WidgetProvider/constants";
+import type { DerivedPropertiesMap } from "WidgetProvider/factory";
+import { EventType } from "constants/AppsmithActionConstants/ActionConstants";
+import { WIDGET_TAGS } from "constants/WidgetConstants";
+import { ValidationTypes } from "constants/WidgetValidation";
+import type { SetterConfig } from "entities/AppTheming";
+import { EvaluationSubstitutionType } from "entities/DataTree/dataTreeFactory";
+import _ from "lodash";
+import log from "loglevel";
+import { buildDeprecationWidgetMessage } from "pages/Editor/utils";
+import React from "react";
+import shallowequal from "shallowequal";
+import { importUppy, isUppyLoaded } from "utils/importUppy";
+import { DefaultAutocompleteDefinitions } from "widgets/WidgetUtils";
 import type { WidgetProps, WidgetState } from "../../BaseWidget";
 import BaseWidget from "../../BaseWidget";
-import type { WidgetType } from "constants/WidgetConstants";
 import FilePickerComponent from "../component";
-import { ValidationTypes } from "constants/WidgetValidation";
-import { EventType } from "constants/AppsmithActionConstants/ActionConstants";
-import type { DerivedPropertiesMap } from "utils/WidgetFactory";
-import type Dashboard from "@uppy/dashboard";
-import shallowequal from "shallowequal";
-import _ from "lodash";
+import IconSVG from "../icon.svg";
 import FileDataTypes from "./FileDataTypes";
-import log from "loglevel";
-import { EvaluationSubstitutionType } from "entities/DataTree/dataTreeFactory";
-import { DefaultAutocompleteDefinitions } from "widgets/WidgetUtils";
-import type { AutocompletionDefinitions } from "widgets/constants";
-import { importUppy, isUppyLoaded } from "utils/importUppy";
-import type { SetterConfig } from "entities/AppTheming";
 
 class FilePickerWidget extends BaseWidget<
   FilePickerWidgetProps,
@@ -27,6 +34,65 @@ class FilePickerWidget extends BaseWidget<
     this.state = {
       areFilesLoading: false,
       isWaitingForUppyToLoad: false,
+    };
+  }
+
+  static type = "FILE_PICKER_WIDGET";
+
+  static getConfig() {
+    return {
+      name: "FilePicker",
+      iconSVG: IconSVG,
+      needsMeta: true,
+      hideCard: true,
+      isDeprecated: true,
+      replacement: "FILE_PICKER_WIDGET_V2",
+      tags: [WIDGET_TAGS.INPUTS],
+    };
+  }
+
+  static getDefaults() {
+    return {
+      rows: 4,
+      files: [],
+      selectedFiles: [],
+      allowedFileTypes: [],
+      label: "Select Files",
+      columns: 16,
+      maxNumFiles: 1,
+      maxFileSize: 5,
+      fileDataType: FileDataTypes.Base64,
+      widgetName: "FilePicker",
+      isDefaultClickDisabled: true,
+      version: 1,
+      isRequired: false,
+      isDisabled: false,
+      animateLoading: true,
+    };
+  }
+
+  static getMethods() {
+    return {
+      getSnipingModeUpdates: (
+        propValueMap: SnipingModeProperty,
+      ): PropertyUpdates[] => {
+        return [
+          {
+            propertyPath: "onFilesSelected",
+            propertyValue: propValueMap.run,
+            isDynamicPropertyPath: true,
+          },
+        ];
+      },
+      getEditorCallouts(): WidgetCallout[] {
+        return [
+          {
+            message: buildDeprecationWidgetMessage(
+              FilePickerWidget.getConfig().name,
+            ),
+          },
+        ];
+      },
     };
   }
 
@@ -242,6 +308,8 @@ class FilePickerWidget extends BaseWidget<
     };
   }
 
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static getMetaPropertiesMap(): Record<string, any> {
     return {
       selectedFiles: [],
@@ -306,6 +374,7 @@ class FilePickerWidget extends BaseWidget<
     };
 
     const uppy = await this.loadAndInitUppyOnce();
+
     uppy.setOptions(uppyState);
   };
 
@@ -357,7 +426,7 @@ class FilePickerWidget extends BaseWidget<
 
     if (location.protocol === "https:") {
       uppy.use(Webcam, {
-        onBeforeSnapshot: () => Promise.resolve(),
+        onBeforeSnapshot: async () => Promise.resolve(),
         countdown: false,
         mirror: true,
         facingMode: "user",
@@ -365,30 +434,38 @@ class FilePickerWidget extends BaseWidget<
       });
     }
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     uppy.on("file-removed", (file: any) => {
       const updatedFiles = this.props.selectedFiles
         ? this.props.selectedFiles.filter((dslFile) => {
             return file.id !== dslFile.id;
           })
         : [];
+
       this.props.updateWidgetMetaProperty("selectedFiles", updatedFiles);
     });
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     uppy.on("files-added", (files: any[]) => {
       const dslFiles = this.props.selectedFiles
         ? [...this.props.selectedFiles]
         : [];
-      const fileReaderPromises = files.map((file) => {
+      const fileReaderPromises = files.map(async (file) => {
         const reader = new FileReader();
+
         return new Promise((resolve) => {
           reader.readAsDataURL(file.data);
           reader.onloadend = () => {
             const base64data = reader.result;
             const binaryReader = new FileReader();
+
             binaryReader.readAsBinaryString(file.data);
             binaryReader.onloadend = () => {
               const rawData = binaryReader.result;
               const textReader = new FileReader();
+
               textReader.readAsText(file.data);
               textReader.onloadend = () => {
                 const text = textReader.result;
@@ -402,8 +479,8 @@ class FilePickerWidget extends BaseWidget<
                     this.props.fileDataType === FileDataTypes.Base64
                       ? base64data
                       : this.props.fileDataType === FileDataTypes.Binary
-                      ? rawData
-                      : text,
+                        ? rawData
+                        : text,
                   name: file.meta ? file.meta.name : undefined,
                 };
 
@@ -496,13 +573,14 @@ class FilePickerWidget extends BaseWidget<
     };
   }
 
-  getPageView() {
+  getWidgetView() {
     return (
       <FilePickerComponent
         closeModal={async () => {
           const uppy = await this.loadAndInitUppyOnce();
 
           const dashboardPlugin = uppy.getPlugin("Dashboard") as Dashboard;
+
           dashboardPlugin.closeModal();
         }}
         files={this.props.selectedFiles || []}
@@ -521,22 +599,22 @@ class FilePickerWidget extends BaseWidget<
           // Copying the `isUppyLoaded` value because `isUppyLoaded` *will* always be true
           // by the time `await this.initUppyInstanceOnce()` resolves.
           const isUppyLoadedByThisPoint = isUppyLoaded;
+
           if (!isUppyLoadedByThisPoint)
             this.setState({ isWaitingForUppyToLoad: true });
+
           const uppy = await this.loadAndInitUppyOnce();
+
           if (!isUppyLoadedByThisPoint)
             this.setState({ isWaitingForUppyToLoad: false });
 
           const dashboardPlugin = uppy.getPlugin("Dashboard") as Dashboard;
+
           dashboardPlugin.openModal();
         }}
         widgetId={this.props.widgetId}
       />
     );
-  }
-
-  static getWidgetType(): WidgetType {
-    return "FILE_PICKER_WIDGET";
   }
 }
 
@@ -549,6 +627,8 @@ export interface FilePickerWidgetProps extends WidgetProps {
   label: string;
   maxNumFiles?: number;
   maxFileSize?: number;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   selectedFiles?: any[];
   allowedFileTypes: string[];
   onFilesSelected?: string;

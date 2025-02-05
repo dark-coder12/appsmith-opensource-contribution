@@ -14,6 +14,7 @@ export class PeekOverlayExpressionIdentifier {
     script?: string,
   ) {
     this.options = options;
+
     if (script) this.updateScript(script);
   }
 
@@ -37,7 +38,7 @@ export class PeekOverlayExpressionIdentifier {
     this.parsedScript = undefined;
   }
 
-  extractExpressionAtPosition(pos: number): Promise<string> {
+  async extractExpressionAtPosition(pos: number): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.parsedScript) {
         throw "PeekOverlayExpressionIdentifier - No valid script found";
@@ -64,6 +65,7 @@ export class PeekOverlayExpressionIdentifier {
           pos,
           this.options,
         );
+
         if (expressionFound) {
           resolve(expressionFound);
         } else {
@@ -72,12 +74,13 @@ export class PeekOverlayExpressionIdentifier {
           );
         }
       }
+
       reject("PeekOverlayExpressionIdentifier - No node found");
     });
   }
 }
 
-export type PeekOverlayExpressionIdentifierOptions = {
+export interface PeekOverlayExpressionIdentifierOptions {
   sourceType: SourceType;
   thisExpressionReplacement?: string;
-};
+}

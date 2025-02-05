@@ -2,28 +2,35 @@ import type Dashboard from "@uppy/dashboard";
 import type { Uppy } from "@uppy/core";
 import type { UppyFile } from "@uppy/utils";
 import { EventType } from "constants/AppsmithActionConstants/ActionConstants";
-import type { WidgetType } from "constants/WidgetConstants";
 import { FILE_SIZE_LIMIT_FOR_BLOBS } from "constants/WidgetConstants";
 import { ValidationTypes } from "constants/WidgetValidation";
 import type { SetterConfig, Stylesheet } from "entities/AppTheming";
 import { EvaluationSubstitutionType } from "entities/DataTree/dataTreeFactory";
-import { klona } from "klona";
 import _, { findIndex } from "lodash";
 import log from "loglevel";
 
 import React from "react";
 import shallowequal from "shallowequal";
 import { createBlobUrl, isBlobUrl } from "utils/AppsmithUtils";
-import type { DerivedPropertiesMap } from "utils/WidgetFactory";
+import type { DerivedPropertiesMap } from "WidgetProvider/factory";
 import { importUppy, isUppyLoaded } from "utils/importUppy";
 import type { WidgetProps, WidgetState } from "widgets/BaseWidget";
 import BaseWidget from "widgets/BaseWidget";
 import FilePickerComponent from "../component";
 import FileDataTypes from "../constants";
 import { DefaultAutocompleteDefinitions } from "widgets/WidgetUtils";
-import type { AutocompletionDefinitions } from "widgets/constants";
+import type {
+  AnvilConfig,
+  AutocompletionDefinitions,
+} from "WidgetProvider/constants";
 import parseFileData from "./FileParser";
 import { FilePickerGlobalStyles } from "./index.styled";
+import { BUTTON_MIN_WIDTH } from "constants/minWidthConstants";
+import { ResponsiveBehavior } from "layoutSystems/common/utils/constants";
+import IconSVG from "../icon.svg";
+import ThumbnailSVG from "../thumbnail.svg";
+import { WIDGET_TAGS } from "constants/WidgetConstants";
+import { klonaRegularWithTelemetry } from "utils/helpers";
 
 const CSV_ARRAY_LABEL = "Array of Objects (CSV, XLS(X), JSON, TSV)";
 
@@ -42,6 +49,82 @@ class FilePickerWidget extends BaseWidget<
       areFilesLoading: false,
       isWaitingForUppyToLoad: false,
       isUppyModalOpen: false,
+    };
+  }
+
+  static type = "FILE_PICKER_WIDGET_V2";
+
+  static getConfig() {
+    return {
+      name: "FilePicker",
+      iconSVG: IconSVG,
+      thumbnailSVG: ThumbnailSVG,
+      tags: [WIDGET_TAGS.INPUTS],
+      needsMeta: true,
+      searchTags: ["upload"],
+    };
+  }
+
+  static getDefaults() {
+    return {
+      rows: 4,
+      files: [],
+      selectedFiles: [],
+      allowedFileTypes: [],
+      label: "Select Files",
+      columns: 16,
+      maxNumFiles: 1,
+      maxFileSize: 5,
+      fileDataType: FileDataTypes.Base64,
+      dynamicTyping: true,
+      widgetName: "FilePicker",
+      isDefaultClickDisabled: true,
+      version: 1,
+      isRequired: false,
+      isDisabled: false,
+      animateLoading: true,
+      responsiveBehavior: ResponsiveBehavior.Hug,
+      minWidth: BUTTON_MIN_WIDTH,
+    };
+  }
+
+  static getAutoLayoutConfig() {
+    return {
+      defaults: {
+        rows: 4,
+        columns: 6.632,
+      },
+      autoDimension: {
+        width: true,
+      },
+      widgetSize: [
+        {
+          viewportMinWidth: 0,
+          configuration: () => {
+            return {
+              minWidth: "120px",
+              maxWidth: "360px",
+              minHeight: "40px",
+            };
+          },
+        },
+      ],
+      disableResizeHandles: {
+        horizontal: true,
+        vertical: true,
+      },
+    };
+  }
+
+  static getAnvilConfig(): AnvilConfig | null {
+    return {
+      isLargeWidget: false,
+      widgetSize: {
+        maxHeight: {},
+        maxWidth: { base: "360px" },
+        minHeight: { base: "40px" },
+        minWidth: { base: "120px" },
+      },
     };
   }
 
@@ -221,7 +304,7 @@ class FilePickerWidget extends BaseWidget<
               type: ValidationTypes.NUMBER,
               params: {
                 min: 1,
-                max: 100,
+                max: 200,
                 default: 5,
                 passThroughOnZero: false,
               },
@@ -343,6 +426,8 @@ class FilePickerWidget extends BaseWidget<
     };
   }
 
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static getMetaPropertiesMap(): Record<string, any> {
     return {
       selectedFiles: [],
@@ -417,6 +502,7 @@ class FilePickerWidget extends BaseWidget<
     };
 
     const uppy = await this.loadAndInitUppyOnce();
+
     uppy.setOptions(uppyState);
   };
 
@@ -472,7 +558,7 @@ class FilePickerWidget extends BaseWidget<
 
     if (location.protocol === "https:") {
       uppy.use(Webcam, {
-        onBeforeSnapshot: () => Promise.resolve(),
+        onBeforeSnapshot: async () => Promise.resolve(),
         countdown: false,
         mirror: true,
         facingMode: "user",
@@ -480,6 +566,8 @@ class FilePickerWidget extends BaseWidget<
       });
     }
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     uppy.on("file-removed", (file: UppyFile, reason: any) => {
       /**
        * The below line will not update the selectedFiles meta prop when cancel-all event is triggered.
@@ -491,6 +579,15 @@ class FilePickerWidget extends BaseWidget<
         const fileCount = this.props.selectedFiles?.length || 0;
 
         /**
+         * We use this.props.selectedFiles to restore the file list that has been read
+         */
+        const fileMap = this.props.selectedFiles!.reduce((acc, cur) => {
+          acc[cur.id] = cur.data;
+
+          return acc;
+        }, {});
+
+        /**
          * Once the file is removed we update the selectedFiles
          * with the current files present in the uppy's internal state
          */
@@ -499,13 +596,14 @@ class FilePickerWidget extends BaseWidget<
           .map((currentFile: UppyFile, index: number) => ({
             type: currentFile.type,
             id: currentFile.id,
-            data: currentFile.data,
+            data: fileMap[currentFile.id],
             name: currentFile.meta
               ? currentFile.meta.name
               : `File-${index + fileCount}`,
             size: currentFile.size,
             dataFormat: this.props.fileDataType,
           }));
+
         this.props.updateWidgetMetaProperty(
           "selectedFiles",
           updatedFiles ?? [],
@@ -519,8 +617,12 @@ class FilePickerWidget extends BaseWidget<
 
     uppy.on("files-added", (files: UppyFile[]) => {
       // Deep cloning the selectedFiles
+
       const selectedFiles = this.props.selectedFiles
-        ? klona(this.props.selectedFiles)
+        ? (klonaRegularWithTelemetry(
+            this.props.selectedFiles,
+            "initializeUppyEventListeners.selectedFiles",
+          ) as Array<unknown>)
         : [];
 
       const fileCount = this.props.selectedFiles?.length || 0;
@@ -528,6 +630,7 @@ class FilePickerWidget extends BaseWidget<
         return new Promise((resolve) => {
           (async () => {
             let data: unknown;
+
             if (file.size < FILE_SIZE_LIMIT_FOR_BLOBS) {
               data = await parseFileData(
                 file.data,
@@ -549,6 +652,7 @@ class FilePickerWidget extends BaseWidget<
               size: file.size,
               dataFormat: this.props.fileDataType,
             };
+
             resolve(newFile);
           })();
         });
@@ -560,6 +664,8 @@ class FilePickerWidget extends BaseWidget<
         }
 
         if (selectedFiles.length !== 0) {
+          // TODO: Fix this the next time the file is edited
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           files.forEach((fileItem: any) => {
             if (!fileItem?.meta?.isInitializing) {
               selectedFiles.push(fileItem);
@@ -607,6 +713,7 @@ class FilePickerWidget extends BaseWidget<
 
     const { selectedFiles: previousSelectedFiles = [] } = prevProps;
     const { selectedFiles = [] } = this.props;
+
     if (previousSelectedFiles.length && selectedFiles.length === 0) {
       (await this.loadAndInitUppyOnce()).reset();
     } else if (
@@ -616,14 +723,21 @@ class FilePickerWidget extends BaseWidget<
     ) {
       await this.reinitializeUppy(this.props);
     }
+
     this.clearFilesFromMemory(prevProps.selectedFiles);
   }
 
   // Reclaim the memory used by blobs.
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   clearFilesFromMemory(previousFiles: any[] = []) {
     const { selectedFiles: newFiles = [] } = this.props;
+
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     previousFiles.forEach((file: any) => {
       let { data: blobUrl } = file;
+
       if (isBlobUrl(blobUrl)) {
         if (findIndex(newFiles, (f) => f.data === blobUrl) === -1) {
           blobUrl = blobUrl.split("?")[0];
@@ -638,6 +752,8 @@ class FilePickerWidget extends BaseWidget<
      * Since on unMount the uppy instance closes and it's internal state is lost along with the files present in it.
      * Below we add the files again to the uppy instance so that the files are retained.
      */
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.props.selectedFiles?.forEach((fileItem: any) => {
       uppy.addFile({
         name: fileItem.name,
@@ -683,7 +799,7 @@ class FilePickerWidget extends BaseWidget<
     };
   }
 
-  getPageView() {
+  getWidgetView() {
     return (
       <>
         <FilePickerComponent
@@ -712,11 +828,14 @@ class FilePickerWidget extends BaseWidget<
 
             if (!isUppyLoadedByThisPoint)
               this.setState({ isWaitingForUppyToLoad: true });
+
             const uppy = await this.loadAndInitUppyOnce();
+
             if (!isUppyLoadedByThisPoint)
               this.setState({ isWaitingForUppyToLoad: false });
 
             const dashboardPlugin = uppy.getPlugin("Dashboard") as Dashboard;
+
             dashboardPlugin.openModal();
             this.setState({ isUppyModalOpen: true });
           }}
@@ -730,10 +849,6 @@ class FilePickerWidget extends BaseWidget<
       </>
     );
   }
-
-  static getWidgetType(): WidgetType {
-    return "FILE_PICKER_WIDGET_V2";
-  }
 }
 
 interface FilePickerWidgetState extends WidgetState {
@@ -746,6 +861,8 @@ interface FilePickerWidgetProps extends WidgetProps {
   label: string;
   maxNumFiles?: number;
   maxFileSize?: number;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   selectedFiles?: any[];
   allowedFileTypes: string[];
   onFilesSelected?: string;

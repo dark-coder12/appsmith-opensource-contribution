@@ -15,18 +15,22 @@ import { JSToString, stringToJS } from "./utils";
 import type { AdditionalDynamicDataTree } from "utils/autocomplete/customTreeTypeDefCreator";
 import LazyCodeEditor from "components/editorComponents/LazyCodeEditor";
 import type { WidgetProps } from "widgets/BaseWidget";
+import { bindingHintHelper } from "components/editorComponents/CodeEditor/hintHelpers";
+import { slashCommandHintHelper } from "components/editorComponents/CodeEditor/commandsHelper";
 
-type InputTextProp = {
+interface InputTextProp {
   label: string;
   value: string;
   onChange: (event: React.ChangeEvent<HTMLTextAreaElement> | string) => void;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   evaluatedValue?: any;
   expected?: CodeEditorExpected;
   placeholder?: string;
   dataTreePath?: string;
   additionalDynamicData?: AdditionalDynamicDataTree;
   theme: EditorTheme;
-};
+}
 
 function InputText(props: InputTextProp) {
   const {
@@ -39,6 +43,7 @@ function InputText(props: InputTextProp) {
     theme,
     value,
   } = props;
+
   return (
     <StyledDynamicInput>
       <LazyCodeEditor
@@ -47,12 +52,14 @@ function InputText(props: InputTextProp) {
         dataTreePath={dataTreePath}
         evaluatedValue={evaluatedValue}
         expected={expected}
+        hinting={[bindingHintHelper, slashCommandHintHelper]}
         input={{
           value: value,
           onChange: onChange,
         }}
         mode={EditorModes.TEXT_WITH_BINDING}
         placeholder={placeholder}
+        positionCursorInsideBinding
         size={EditorSize.EXTENDED}
         tabBehaviour={TabBehaviour.INDENT}
         theme={theme}
@@ -97,8 +104,8 @@ class WrappedCodeEditorControl extends BaseControl<WrappedCodeEditorControlProps
       propertyValue && isDynamicValue(propertyValue)
         ? this.getInputComputedValue(propertyValue)
         : propertyValue
-        ? propertyValue
-        : defaultValue;
+          ? propertyValue
+          : defaultValue;
 
     // Load default value in evaluated value
     if (value && !propertyValue) {
@@ -126,6 +133,7 @@ class WrappedCodeEditorControl extends BaseControl<WrappedCodeEditorControlProps
         bindingPrefix.length,
         propertyValue.length - this.wrapperCode.suffix.length,
       )}`;
+
       return JSToString(value);
     } else {
       return propertyValue;

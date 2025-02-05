@@ -1,39 +1,61 @@
-import React from "react";
-import styled from "styled-components";
-import QuickGitActions from "pages/Editor/gitSync/QuickGitActions";
-import { Layers } from "constants/Layers";
+import React, { useCallback } from "react";
 import { DebuggerTrigger } from "components/editorComponents/Debugger";
 import HelpButton from "pages/Editor/HelpButton";
 import ManualUpgrades from "./ManualUpgrades";
-import { Button } from "design-system";
-import SwitchEnvironment from "@appsmith/components/SwitchEnvironment";
+import { Button } from "@appsmith/ads";
+import SwitchEnvironment from "ee/components/SwitchEnvironment";
+import { Container, Wrapper } from "./components";
+import { useSelector } from "react-redux";
+import {
+  getCurrentApplicationId,
+  previewModeSelector,
+} from "selectors/editorSelectors";
+import { useDispatch } from "react-redux";
+import { softRefreshActions } from "actions/pluginActionActions";
+import { START_SWITCH_ENVIRONMENT } from "ee/constants/messages";
+import { getIsAnvilEnabledInCurrentApplication } from "layoutSystems/anvil/integrations/selectors";
+import PackageUpgradeStatus from "ee/components/BottomBar/PackageUpgradeStatus";
+import OldGitQuickActions from "pages/Editor/gitSync/QuickGitActions";
+import { GitQuickActions } from "git";
+import { useGitModEnabled } from "pages/Editor/gitSync/hooks/modHooks";
 
-const Container = styled.div`
-  width: 100%;
-  height: ${(props) => props.theme.bottomBarHeight};
-  display: flex;
-  position: fixed;
-  justify-content: space-between;
-  background-color: ${(props) => props.theme.colors.editorBottomBar.background};
-  z-index: ${Layers.bottomBar};
-  border-top: solid 1px var(--ads-v2-color-border);
-`;
+function GitActions() {
+  const isGitModEnabled = useGitModEnabled();
 
-const Wrapper = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-`;
+  return isGitModEnabled ? <GitQuickActions /> : <OldGitQuickActions />;
+}
 
-export default function BottomBar({ viewMode }: { viewMode: boolean }) {
+export default function BottomBar() {
+  const appId = useSelector(getCurrentApplicationId) || "";
+  // We check if the current application is an Anvil application.
+  // If it is an Anvil application, we remove the Git features from the bottomBar
+  // as they donot yet work correctly with Anvil.
+  const isAnvilEnabled = useSelector(getIsAnvilEnabledInCurrentApplication);
+  const isPreviewMode = useSelector(previewModeSelector);
+  const isGitEnabled = !isAnvilEnabled && !isPreviewMode;
+
+  const dispatch = useDispatch();
+
+  const onChangeEnv = useCallback(() => {
+    dispatch(softRefreshActions());
+  }, [dispatch]);
+
   return (
     <Container>
       <Wrapper>
-        <SwitchEnvironment viewMode={viewMode} />
-        {!viewMode && <QuickGitActions />}
+        {!isPreviewMode && (
+          <SwitchEnvironment
+            editorId={appId}
+            onChangeEnv={onChangeEnv}
+            startSwitchEnvMessage={START_SWITCH_ENVIRONMENT}
+            viewMode={isPreviewMode}
+          />
+        )}
+        {isGitEnabled && <GitActions />}
       </Wrapper>
-      {!viewMode && (
+      {!isPreviewMode && (
         <Wrapper>
+          <PackageUpgradeStatus />
           <ManualUpgrades showTooltip>
             <Button
               className="t--upgrade"

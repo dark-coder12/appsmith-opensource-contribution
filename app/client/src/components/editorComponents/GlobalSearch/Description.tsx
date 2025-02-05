@@ -3,15 +3,15 @@ import styled from "styled-components";
 import ActionLink from "./ActionLink";
 import Highlight from "./Highlight";
 import { getItemTitle, SEARCH_ITEM_TYPES } from "./utils";
-import { getTypographyByKey } from "design-system-old";
+import { getTypographyByKey } from "@appsmith/ads-old";
 import type { SearchItem } from "./utils";
 
-type Props = {
+interface Props {
   activeItem: SearchItem;
   activeItemType?: SEARCH_ITEM_TYPES;
   query: string;
   scrollPositionRef: React.MutableRefObject<number>;
-};
+}
 
 const Container = styled.div`
   flex: 2;
@@ -191,7 +191,9 @@ function Description(props: Props) {
   const { activeItem, activeItemType } = props;
 
   if (!activeItemType || !activeItem) return null;
+
   const Component = descriptionByType[activeItemType];
+
   return (
     <Container data-testid="description">
       <Component item={activeItem} query={props.query} />
@@ -199,4 +201,4 @@ function Description(props: Props) {
   );
 }
 
-export default Description;
+export default React.memo(Description);

@@ -7,6 +7,7 @@ describe("PostgreSQL WidgetQueryGenerator", () => {
       pluginSpecifiedTemplates: [{ value: true }],
     },
   };
+
   test("should build select form data correctly", () => {
     const expr = PostgreSQL.build(
       {
@@ -185,7 +186,10 @@ OFFSET
         aliases: [{ name: "someColumn1", alias: "someColumn1" }],
         widgetId: "someWidgetId",
         searchableColumn: "title",
-        columns: ["id", "name"],
+        columns: [
+          { name: "id", type: "number", isSelected: true },
+          { name: "name", type: "number", isSelected: true },
+        ],
         primaryColumn: "",
         connectionMode: DatasourceConnectionMode.READ_WRITE,
       },
@@ -210,7 +214,10 @@ OFFSET
         aliases: [{ name: "someColumn1", alias: "someColumn1" }],
         widgetId: "someWidgetId",
         searchableColumn: "title",
-        columns: ["id", "name"],
+        columns: [
+          { name: "id", type: "number", isSelected: true },
+          { name: "name", type: "number", isSelected: true },
+        ],
         primaryColumn: "id",
         connectionMode: DatasourceConnectionMode.READ_ONLY,
       },
@@ -235,9 +242,13 @@ OFFSET
         aliases: [{ name: "someColumn1", alias: "someColumn1" }],
         widgetId: "someWidgetId",
         searchableColumn: "title",
-        columns: ["id", "name"],
+        columns: [
+          { name: "id", type: "number", isSelected: true },
+          { name: "name", type: "number", isSelected: true },
+        ],
         primaryColumn: "id",
         connectionMode: DatasourceConnectionMode.READ_WRITE,
+        dataIdentifier: "id",
       },
       initialValues,
     );
@@ -274,12 +285,16 @@ OFFSET
         aliases: [{ name: "someColumn1", alias: "someColumn1" }],
         widgetId: "someWidgetId",
         searchableColumn: "title",
-        columns: ["id", "name"],
+        columns: [
+          { name: "id", type: "number", isSelected: true },
+          { name: "name", type: "number", isSelected: true },
+        ],
         primaryColumn: "",
         connectionMode: DatasourceConnectionMode.READ_WRITE,
       },
       initialValues,
     );
+
     expect(expr).toEqual([]);
   });
 
@@ -298,7 +313,10 @@ OFFSET
         aliases: [{ name: "someColumn1", alias: "someColumn1" }],
         widgetId: "someWidgetId",
         searchableColumn: "title",
-        columns: ["id", "name"],
+        columns: [
+          { name: "id", type: "number", isSelected: true },
+          { name: "name", type: "number", isSelected: true },
+        ],
         primaryColumn: "id",
         connectionMode: DatasourceConnectionMode.READ_ONLY,
       },
@@ -323,12 +341,16 @@ OFFSET
         aliases: [{ name: "someColumn1", alias: "someColumn1" }],
         widgetId: "someWidgetId",
         searchableColumn: "title",
-        columns: ["id", "name"],
+        columns: [
+          { name: "id", type: "number", isSelected: true },
+          { name: "name", type: "number", isSelected: true },
+        ],
         primaryColumn: "id",
         connectionMode: DatasourceConnectionMode.READ_WRITE,
       },
       initialValues,
     );
+
     expect(expr).toEqual([
       {
         name: "Insert_someTable",

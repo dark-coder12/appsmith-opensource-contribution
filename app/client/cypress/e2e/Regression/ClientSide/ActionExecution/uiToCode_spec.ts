@@ -1,23 +1,25 @@
 import {
   agHelper,
-  locators,
-  entityExplorer,
-  jsEditor,
-  propPane,
   apiPage,
   draggableWidgets,
+  entityExplorer,
+  jsEditor,
+  locators,
+  propPane,
 } from "../../../../support/Objects/ObjectsCore";
+import EditorNavigation, {
+  EntityType,
+} from "../../../../support/Pages/EditorNavigation";
 
-describe("UI to Code", () => {
+describe("UI to Code", { tags: ["@tag.JS", "@tag.Binding"] }, () => {
   before(() => {
     entityExplorer.DragDropWidgetNVerify(draggableWidgets.BUTTON);
-    entityExplorer.NavigateToSwitcher("Explorer");
     apiPage.CreateApi();
     apiPage.CreateApi("Api2", "POST");
   });
 
   beforeEach(() => {
-    entityExplorer.SelectEntityByName("Button1", "Widgets");
+    EditorNavigation.SelectEntityByName("Button1", EntityType.Widget);
     propPane.EnterJSContext("onClick", "");
     propPane.ToggleJSMode("onClick", false);
   });
@@ -47,12 +49,12 @@ describe("UI to Code", () => {
     agHelper.GetNClick(propPane._navigateToType("URL"));
     agHelper.TypeText(
       propPane._actionSelectorFieldByLabel("Enter URL"),
-      "https://google.com",
+      "https://www.google.com",
     );
     agHelper.GetNClick(propPane._actionSelectorPopupClose);
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');}}`,
     );
 
     // Add third action
@@ -78,7 +80,7 @@ describe("UI to Code", () => {
     // Validate the code
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
     );
 
     // Delete the third action
@@ -95,7 +97,7 @@ describe("UI to Code", () => {
     // Assert the code for the remaining actions
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');copyToClipboard('text to copy');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');copyToClipboard('text to copy');}}`,
     );
 
     // Delete the first action
@@ -111,7 +113,7 @@ describe("UI to Code", () => {
     // Assert the code for the remaining actions
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{navigateTo('https://google.com', {}, 'SAME_WINDOW');copyToClipboard('text to copy');}}`,
+      `{{navigateTo('https://www.google.com', {}, 'SAME_WINDOW');copyToClipboard('text to copy');}}`,
     );
   });
 
@@ -130,13 +132,13 @@ describe("UI to Code", () => {
     agHelper.GetNClick(propPane._navigateToType("URL"));
     agHelper.TypeText(
       propPane._actionSelectorFieldByLabel("Enter URL"),
-      "https://google.com",
+      "https://www.google.com",
     );
     agHelper.GetNClick(propPane._actionSelectorPopupClose);
 
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');}}`,
     );
 
     // Add third action
@@ -163,7 +165,7 @@ describe("UI to Code", () => {
 
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
     );
 
     // Delete the third action
@@ -195,7 +197,7 @@ describe("UI to Code", () => {
 
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
     );
   });
 
@@ -214,13 +216,13 @@ describe("UI to Code", () => {
     agHelper.GetNClick(propPane._navigateToType("URL"));
     agHelper.TypeText(
       propPane._actionSelectorFieldByLabel("Enter URL"),
-      "https://google.com",
+      "https://www.google.com",
     );
     agHelper.GetNClick(propPane._actionSelectorPopupClose);
 
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');}}`,
     );
 
     // Add third action
@@ -247,7 +249,7 @@ describe("UI to Code", () => {
 
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{showAlert('Hello!', '');navigateTo('https://google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
+      `{{showAlert('Hello!', '');navigateTo('https://www.google.com', {}, 'SAME_WINDOW');storeValue('secret-key', 'secret-value');copyToClipboard('text to copy');}}`,
     );
 
     // Delete the third action
@@ -284,7 +286,7 @@ describe("UI to Code", () => {
 
     propPane.ValidateJSFieldValue(
       "onClick",
-      `{{navigateTo('https://google.com', {}, 'SAME_WINDOW');copyToClipboard('text to copy');}}`,
+      `{{navigateTo('https://www.google.com', {}, 'SAME_WINDOW');copyToClipboard('text to copy');}}`,
     );
   });
 
@@ -299,12 +301,12 @@ describe("UI to Code", () => {
     agHelper.GetNClick(propPane._actionCardByTitle("Show alert"));
 
     // add a success callback
-    agHelper.GetNClick(propPane._actionAddCallback("success")).wait(500);
-    agHelper.GetNClick(locators._dropDownValue("Store value")).wait(500);
+    agHelper.GetNClick(propPane._actionAddCallback("success"));
+    agHelper.GetNClick(locators._dropDownValue("Store value"));
 
     // add an error callback
-    agHelper.GetNClick(propPane._actionAddCallback("failure")).wait(500);
-    agHelper.GetNClick(locators._dropDownValue("Navigate to")).wait(500);
+    agHelper.GetNClick(propPane._actionAddCallback("failure"));
+    agHelper.GetNClick(locators._dropDownValue("Navigate to"));
 
     propPane.ValidateJSFieldValue(
       "onClick",
@@ -366,6 +368,7 @@ describe("UI to Code", () => {
 
     // Edit the success callback of the nested Api2.run
     propPane.SelectActionByTitleAndValue("Execute a query", "Api2.run");
+    agHelper.GetNClick(propPane._actionCollapsibleHeader("Params"));
     agHelper.EnterActionValue(
       "Params",
       `{{{
@@ -397,7 +400,7 @@ describe("UI to Code", () => {
 
     // Click on the callback button
     agHelper.GetNClick(propPane._actionAddCallback("success"));
-    agHelper.GetNClick(locators._dropDownValue("Store value")).wait(500);
+    agHelper.GetNClick(locators._dropDownValue("Store value"));
 
     propPane.ValidateJSFieldValue(
       "onClick",

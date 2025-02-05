@@ -1,6 +1,7 @@
 package com.appsmith.server.solutions;
 
 import com.appsmith.server.configurations.CommonConfig;
+import com.appsmith.server.configurations.DeploymentProperties;
 import com.appsmith.server.configurations.ProjectProperties;
 import com.appsmith.server.configurations.SegmentConfig;
 import com.appsmith.server.helpers.NetworkUtils;
@@ -11,6 +12,7 @@ import com.appsmith.server.repositories.NewPageRepository;
 import com.appsmith.server.repositories.UserRepository;
 import com.appsmith.server.repositories.WorkspaceRepository;
 import com.appsmith.server.services.ConfigService;
+import com.appsmith.server.services.PermissionGroupService;
 import com.appsmith.server.solutions.ce.PingScheduledTaskCEImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -37,8 +39,9 @@ public class PingScheduledTaskImpl extends PingScheduledTaskCEImpl implements Pi
             DatasourceRepository datasourceRepository,
             UserRepository userRepository,
             ProjectProperties projectProperties,
-            NetworkUtils networkUtils) {
-
+            DeploymentProperties deploymentProperties,
+            NetworkUtils networkUtils,
+            PermissionGroupService permissionGroupService) {
         super(
                 configService,
                 segmentConfig,
@@ -50,6 +53,8 @@ public class PingScheduledTaskImpl extends PingScheduledTaskCEImpl implements Pi
                 datasourceRepository,
                 userRepository,
                 projectProperties,
-                networkUtils);
+                deploymentProperties,
+                networkUtils,
+                permissionGroupService);
     }
 }

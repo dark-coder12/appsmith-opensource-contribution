@@ -1,16 +1,14 @@
 import type { Datasource } from "entities/Datasource";
 import { AuthenticationStatus } from "entities/Datasource";
-import type { Plugin } from "api/PluginApi";
+import { type Plugin, PluginPackageName } from "entities/Plugin";
 import {
   createMessage,
   GSHEET_AUTHORISED_FILE_IDS_KEY,
   GSHEET_AUTHORIZATION_ERROR,
   GSHEET_FILES_NOT_SELECTED,
-} from "@appsmith/constants/messages";
+} from "ee/constants/messages";
 import { getDatasourcePropertyValue } from "utils/editorContextUtils";
 import { GOOGLE_SHEET_SPECIFIC_SHEETS_SCOPE } from "constants/Datasource";
-import { PluginPackageName } from "entities/Action";
-import { getCurrentEnvironment } from "@appsmith/utils/Environments";
 import { get } from "lodash";
 
 /**
@@ -23,8 +21,8 @@ import { get } from "lodash";
 export function isAuthorisedFilesEmptyGsheet(
   datasource: Datasource,
   propertyKey: string,
+  currentEnvironment: string,
 ): boolean {
-  const currentEnvironment = getCurrentEnvironment();
   const value = get(
     datasource,
     `datasourceStorages.${currentEnvironment}.datasourceConfiguration.authentication.scopeString`,
@@ -43,6 +41,8 @@ export function isAuthorisedFilesEmptyGsheet(
   const isAuthFailure =
     !!authStatus &&
     authStatus === AuthenticationStatus.FAILURE_FILE_NOT_SELECTED;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const gapiLoadSuccess = (window as any).googleAPIsLoaded;
 
   return (
@@ -64,6 +64,7 @@ export function isAuthorisedFilesEmptyGsheet(
 export function getDatasourceErrorMessage(
   datasource: Datasource,
   plugin: Plugin | undefined,
+  currentEnvironment: string,
 ): string {
   if (!datasource) return "";
 
@@ -74,6 +75,7 @@ export function getDatasourceErrorMessage(
       const authorisedFilesEmptyGsheet = isAuthorisedFilesEmptyGsheet(
         datasource,
         createMessage(GSHEET_AUTHORISED_FILE_IDS_KEY),
+        currentEnvironment,
       );
 
       authErrorMessage = authorisedFilesEmptyGsheet

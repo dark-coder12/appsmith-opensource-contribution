@@ -1,11 +1,11 @@
 import { Popover2 } from "@blueprintjs/popover2";
 import { isModalOpenSelector } from "components/editorComponents/GlobalSearch";
-import type { TreeDropdownOption } from "design-system-old";
-import { Text, Button } from "design-system";
+import type { TreeDropdownOption } from "@appsmith/ads-old";
+import { Text, Button } from "@appsmith/ads";
 import React, { useCallback, useRef } from "react";
 import { useSelector } from "react-redux";
 import { getWidgetOptionsTree } from "sagas/selectors";
-import { getPageListAsOptions } from "selectors/entitiesSelector";
+import { getPageListAsOptions } from "ee/selectors/entitiesSelector";
 import type { AdditionalDynamicDataTree } from "utils/autocomplete/customTreeTypeDefCreator";
 import { ActionCreatorContext } from "../..";
 import { AppsmithFunction } from "../../constants";
@@ -19,15 +19,18 @@ import { getCodeFromMoustache, getSelectedFieldFromValue } from "../../utils";
 
 export default function ActionSelector(props: {
   action: TActionBlock;
+  additionalAutoComplete?: AdditionalDynamicDataTree;
   children: React.ReactNode;
   open: boolean;
   id: string;
   level: number;
+  dataTreePath: string | undefined;
   onChange: (actionBlock: TActionBlock, del?: boolean) => void;
 }) {
   const action = props.action;
   const isOmnibarOpen = useSelector(isModalOpenSelector);
   let popoverClassName = "";
+
   switch (props.level) {
     case 0:
       popoverClassName = "w-[280px] !translate-x-[-17px]";
@@ -43,7 +46,14 @@ export default function ActionSelector(props: {
     <Popover2
       canEscapeKeyClose
       className="w-full"
-      content={<ActionSelectorForm action={action} onChange={props.onChange} />}
+      content={
+        <ActionSelectorForm
+          action={action}
+          additionalAutoComplete={props.additionalAutoComplete}
+          dataTreePath={props.dataTreePath}
+          onChange={props.onChange}
+        />
+      }
       isOpen={props.open}
       minimal
       popoverClassName={popoverClassName}
@@ -56,11 +66,12 @@ export default function ActionSelector(props: {
   );
 }
 
-type TActionSelectorFormProps = {
+interface TActionSelectorFormProps {
   action: TActionBlock;
   onChange: (actionBlock: TActionBlock, del?: boolean) => void;
   additionalAutoComplete?: AdditionalDynamicDataTree;
-};
+  dataTreePath: string | undefined;
+}
 
 const pathClassList = [
   "CodeMirror-hints",
@@ -69,11 +80,16 @@ const pathClassList = [
   "evaluated-value-popup",
   "subtree-container",
   "drag-handle-block",
+  "action-creator-create-new-modal",
 ];
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isClassPresentInList = (path: any, className: string) =>
   path.classList?.contains(className);
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isAddActionAndLabelPresentInPath = (path: any) => {
   return (
     isClassPresentInList(path, "add-action") &&
@@ -103,6 +119,7 @@ function ActionSelectorForm(props: TActionSelectorFormProps) {
   const handleOutsideClick = useCallback(
     (e) => {
       const paths = e.composedPath() || [];
+
       for (const path of paths) {
         if (
           pathClassList.some((className) =>
@@ -112,11 +129,14 @@ function ActionSelectorForm(props: TActionSelectorFormProps) {
         ) {
           return;
         }
+
         if (ref?.current && path === ref.current) {
           return;
         }
       }
+
       selectBlock("-1");
+
       return;
     },
     [selectBlock],
@@ -124,6 +144,7 @@ function ActionSelectorForm(props: TActionSelectorFormProps) {
 
   React.useEffect(() => {
     document.addEventListener("mousedown", handleOutsideClick);
+
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
@@ -176,6 +197,7 @@ function ActionSelectorForm(props: TActionSelectorFormProps) {
       <div className="p-3 pt-0">
         <FieldGroup
           additionalAutoComplete={additionalAutoComplete}
+          dataTreePath={props.dataTreePath}
           integrationOptions={integrationOptions}
           isChainedAction={isChainedAction}
           modalDropdownList={modalDropdownList}
@@ -186,7 +208,10 @@ function ActionSelectorForm(props: TActionSelectorFormProps) {
               integrationOptions,
             );
             const actionType = (selectedField.type ||
+              // TODO: Fix this the next time the file is edited
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               selectedField.value) as any;
+
             onChange({
               ...action,
               code,

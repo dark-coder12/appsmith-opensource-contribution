@@ -12,11 +12,18 @@ import org.apache.commons.lang3.ObjectUtils;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.DATASOURCE_CREATED_AT_SHORTNAME;
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.DATASOURCE_ID_SHORTNAME;
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.DATASOURCE_IS_MOCK_SHORTNAME;
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.DATASOURCE_IS_TEMPLATE_SHORTNAME;
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.DATASOURCE_NAME_SHORTNAME;
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.ENVIRONMENT_ID_SHORTNAME;
+import static com.appsmith.server.constants.ce.AnalyticsConstantsCE.ENVIRONMENT_NAME_SHORTNAME;
+
 public class DatasourceAnalyticsUtils {
 
     public static Map<String, Object> getAnalyticsProperties(Datasource datasource) {
         Map<String, Object> analyticsProperties = new HashMap<>();
-        analyticsProperties.put("orgId", datasource.getWorkspaceId());
         analyticsProperties.put("pluginName", datasource.getPluginName());
         analyticsProperties.put("pluginId", datasource.getPluginId());
         analyticsProperties.put("dsName", datasource.getName());
@@ -29,7 +36,6 @@ public class DatasourceAnalyticsUtils {
 
     public static Map<String, Object> getAnalyticsProperties(DatasourceStorage datasourceStroge) {
         Map<String, Object> analyticsProperties = new HashMap<>();
-        analyticsProperties.put("orgId", datasourceStroge.getWorkspaceId());
         analyticsProperties.put("pluginName", datasourceStroge.getPluginName());
         analyticsProperties.put("pluginId", datasourceStroge.getPluginId());
         analyticsProperties.put("dsName", datasourceStroge.getName());
@@ -87,5 +93,20 @@ public class DatasourceAnalyticsUtils {
             analyticsProperties.put("oAuthStatus", dsConfig.getAuthentication().getAuthenticationStatus());
         }
         return analyticsProperties;
+    }
+
+    public static Map<String, Object> getAnalyticsPropertiesWithStorageOnActionExecution(
+            DatasourceStorage datasourceStorage, String dsCreatedAt, String environmentName) {
+        Map<String, Object> data = new HashMap<>();
+
+        data.put(DATASOURCE_ID_SHORTNAME, ObjectUtils.defaultIfNull(datasourceStorage.getDatasourceId(), ""));
+        data.put(ENVIRONMENT_ID_SHORTNAME, ObjectUtils.defaultIfNull(datasourceStorage.getEnvironmentId(), ""));
+        data.put(DATASOURCE_NAME_SHORTNAME, datasourceStorage.getName());
+        data.put(DATASOURCE_IS_TEMPLATE_SHORTNAME, ObjectUtils.defaultIfNull(datasourceStorage.getIsTemplate(), ""));
+        data.put(DATASOURCE_IS_MOCK_SHORTNAME, ObjectUtils.defaultIfNull(datasourceStorage.getIsMock(), ""));
+        data.put(DATASOURCE_CREATED_AT_SHORTNAME, dsCreatedAt);
+        data.put(ENVIRONMENT_NAME_SHORTNAME, ObjectUtils.defaultIfNull(environmentName, ""));
+
+        return data;
     }
 }

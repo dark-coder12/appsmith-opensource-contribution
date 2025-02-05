@@ -4,6 +4,8 @@ import type {
   MemberExpressionData,
   IdentifierInfo,
   AssignmentExpressionData,
+  CallExpressionData,
+  MemberCallExpressionData,
 } from "./src";
 import {
   isIdentifierNode,
@@ -20,6 +22,7 @@ import {
   getFunctionalParamsFromNode,
   isTypeOfFunction,
   isFunctionPresent,
+  getMemberExpressionObjectFromProperty,
 } from "./src";
 
 // constants
@@ -32,7 +35,11 @@ import type {
   JSVarProperty,
   JSFunctionProperty,
 } from "./src/jsObject";
-import { parseJSObject, isJSFunctionProperty } from "./src/jsObject";
+import {
+  parseJSObject,
+  isJSFunctionProperty,
+  addPropertiesToJSObjectCode,
+} from "./src/jsObject";
 
 // action creator
 import {
@@ -82,6 +89,8 @@ export type {
   AssignmentExpressionData,
   JSVarProperty,
   JSFunctionProperty,
+  CallExpressionData,
+  MemberCallExpressionData,
 };
 
 export {
@@ -133,4 +142,6 @@ export {
   isJSFunctionProperty,
   isFunctionPresent,
   PeekOverlayExpressionIdentifier,
+  getMemberExpressionObjectFromProperty,
+  addPropertiesToJSObjectCode,
 };

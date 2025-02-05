@@ -1,18 +1,21 @@
-import { Option, Select } from "design-system";
+import { Option, Select } from "@appsmith/ads";
 import type { DefaultOptionType } from "rc-select/lib/Select";
 import React, { memo } from "react";
 import { DropdownOption } from "../../CommonControls/DatasourceDropdown/DropdownOption";
 import { ErrorMessage, Label, SelectWrapper } from "../../styles";
 import { useColumns } from "./useColumns";
 
-type Props = {
+interface Props {
   id: string;
   alias: string;
   label: string;
   onSelect: () => void;
-};
+  isSearcheable: boolean;
+}
 
 function ColumnDropdown(props: Props) {
+  const { alias, isSearcheable } = props;
+
   const {
     disabled,
     error,
@@ -22,7 +25,7 @@ function ColumnDropdown(props: Props) {
     options,
     selected,
     show,
-  } = useColumns(props.alias);
+  } = useColumns(alias, isSearcheable);
 
   if (show) {
     return (
@@ -30,7 +33,7 @@ function ColumnDropdown(props: Props) {
         <Label>{props.label}</Label>
         <Select
           allowClear
-          data-testId={`t--one-click-binding-column-${props.id}`}
+          data-testid={`t--one-click-binding-column-${props.id}`}
           dropdownStyle={{
             minWidth: "350px",
             maxHeight: "300px",
@@ -46,17 +49,18 @@ function ColumnDropdown(props: Props) {
               onSelect(value, option);
             }
           }}
+          showSearch
           value={selected}
           virtual={false}
         >
           {options.map((option) => {
             return (
               <Option
-                data-testId={`t--one-click-binding-column-${props.id}--column`}
+                data-testid={`t--one-click-binding-column-${props.id}--column`}
                 key={option.id}
                 value={option.value}
               >
-                <DropdownOption label={option.label} leftIcon={option.icon} />
+                <DropdownOption label={option.label} />
               </Option>
             );
           })}

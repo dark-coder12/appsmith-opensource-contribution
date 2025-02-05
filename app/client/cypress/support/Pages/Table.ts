@@ -27,7 +27,8 @@ type columnTypeValues =
   | "Button"
   | "Menu button"
   | "Icon button"
-  | "Select";
+  | "Select"
+  | "HTML";
 
 export class Table {
   private agHelper = ObjectsRegistry.AggregateHelper;
@@ -37,9 +38,7 @@ export class Table {
   private assertHelper = ObjectsRegistry.AssertHelper;
 
   private _tableWrap = "//div[contains(@class,'tableWrap')]";
-  private _tableHeader =
-    this._tableWrap +
-    "//div[contains(@class,'thead')]//div[contains(@class,'tr')][1]";
+  private _tableHeader = ".thead div[role=columnheader]";
   private _columnHeader = (columnName: string) =>
     this._tableWrap +
     "//div[contains(@class,'thead')]//div[contains(@class,'tr')][1]//div[@role='columnheader']//div[contains(text(),'" +
@@ -61,6 +60,15 @@ export class Table {
   _tableRow = (rowNum: number, colNum: number, version: "v1" | "v2") =>
     this._tableWidgetVersion(version) +
     ` .tbody .td[data-rowindex=${rowNum}][data-colindex=${colNum}]`;
+  _tableColumnDataWithText = (
+    colNum: number,
+    columnText: string,
+    version: "v1" | "v2",
+  ) =>
+    this._tableWidgetVersion(version) +
+    ` .tbody .td[data-colindex=${colNum}]` +
+    this._tableRowColumnDataVersion(version) +
+    ` div:contains("${columnText}")`;
   _editCellIconDiv = ".t--editable-cell-icon";
   _editCellEditor = ".t--inlined-cell-editor";
   _editCellEditorInput = this._editCellEditor + " input";
@@ -90,7 +98,7 @@ export class Table {
   _liCurrentSelectedPage =
     "//div[@type='LIST_WIDGET']//ul[contains(@class, 'rc-pagination')]/li[contains(@class, 'rc-pagination-item-active')]/a";
   private _tr = ".tbody .tr";
-  private _searchText = "input[type='search']";
+  private _searchTableInput = "input[type='search'][placeholder='Search...']";
   _searchBoxCross =
     "//div[contains(@class, 't--search-input')]/following-sibling::div";
   _addIcon = "button .bp3-icon-add";
@@ -141,7 +149,7 @@ export class Table {
   _filtersCount = this._filterBtn + " span.action-title";
   _headerCell = (column: string) =>
     `.t--widget-tablewidgetv2 .thead .th:contains(${column})`;
-  private _addNewRow = ".t--add-new-row";
+  public _addNewRow = ".t--add-new-row";
   _saveNewRow = ".t--save-new-row";
   _discardRow = ".t--discard-new-row";
   _searchInput = ".t--search-input input";
@@ -189,13 +197,17 @@ export class Table {
   _divFirstChild = "div:first-child abbr";
   _listPreviousPage = ".rc-pagination-prev";
   _listNavigation = (move: string) =>
-    "//button[@area-label='" + move + " page']";
+    "//button[@aria-label='" + move + " page']";
   _listNextPage = ".rc-pagination-next";
   _listActivePage = (version: "v1" | "v2") =>
     `.t--widget-listwidget${
       version == "v1" ? "" : version
     } .rc-pagination-item-active`;
   _paginationItem = (value: number) => `.rc-pagination-item-${value}`;
+  _cellWrapOff = "//div[@class='tableWrap virtual']";
+  _cellWrapOn = "//div[@class='tableWrap']";
+  _multirowselect = ".t--table-multiselect";
+  _selectedrow = ".selected-row";
 
   public GetNumberOfRows() {
     return this.agHelper.GetElement(this._tr).its("length");
@@ -238,29 +250,23 @@ export class Table {
     tableVersion: "v1" | "v2" = "v1",
   ) {
     this.agHelper
-      .GetElement(
-        this._tableRowColumnData(rowIndex, colIndex, tableVersion),
-        30000,
-      )
+      .GetElement(this._tableRowColumnData(rowIndex, colIndex, tableVersion))
       .waitUntil(($ele) =>
         cy.wrap($ele).children("span").should("not.be.empty"),
       );
   }
 
   public WaitForTableEmpty(tableVersion: "v1" | "v2" = "v1") {
-    cy.waitUntil(() => cy.get(this._tableEmptyColumnData(tableVersion)), {
-      errorMsg: "Table is populated when not expected",
-      timeout: 10000,
-      interval: 2000,
-    }).then(($children) => {
-      cy.wrap($children).children().should("have.length", 0); //or below
-      //expect($children).to.have.lengthOf(0)
-      this.agHelper.Sleep(500);
-    });
+    this.agHelper
+      .GetElement(this._tableEmptyColumnData(tableVersion), "noVerify")
+      .children()
+      .should("have.length", 0); //or below
+    //expect($children).to.have.lengthOf(0)
+    this.agHelper.Sleep(500);
   }
 
   public AssertTableHeaderOrder(expectedOrder: string) {
-    cy.xpath(this._tableHeader)
+    cy.get(this._tableHeader)
       .invoke("text")
       .then((x) => {
         expect(x).to.eq(expectedOrder);
@@ -290,7 +296,7 @@ export class Table {
     //timeout can be sent higher values incase of larger tables
     this.agHelper.Sleep(timeout); //Settling time for table!
     return this.agHelper
-      .GetElement(this._tableRowColumnData(rowNum, colNum, tableVersion), 30000)
+      .GetElement(this._tableRowColumnData(rowNum, colNum, tableVersion))
       .invoke("text");
   }
 
@@ -446,11 +452,11 @@ export class Table {
   }
 
   public AssertSearchText(searchTxt: string, index = 0) {
-    cy.get(this._searchText).eq(index).should("have.value", searchTxt);
+    cy.get(this._searchTableInput).eq(index).should("have.value", searchTxt);
   }
 
   public SearchTable(searchTxt: string, index = 0) {
-    cy.get(this._searchText).eq(index).type(searchTxt);
+    this.agHelper.TypeText(this._searchTableInput, searchTxt, index);
   }
 
   public ResetSearch() {
@@ -553,7 +559,7 @@ export class Table {
     tableVersion: "v1" | "v2" = "v1",
   ) {
     this.EditColumn(columnName, tableVersion);
-    this.agHelper.SelectDropdownList("Column type", newDataType);
+    this.propPane.SelectPropertiesDropDown("Column type", newDataType);
     this.assertHelper.AssertNetworkStatus("@updateLayout");
     if (tableVersion == "v2") this.propPane.NavigateBackToPropertyPane();
   }
@@ -563,7 +569,7 @@ export class Table {
     col: number,
     expectedURL: string,
     tableVersion: "v1" | "v2" = "v1",
-    networkCall = "viewPage",
+    networkCall = "getConsolidatedData",
   ) {
     this.deployMode.StubWindowNAssert(
       this._tableRowColumnData(row, col, tableVersion),
@@ -587,6 +593,20 @@ export class Table {
       force: true,
     });
     cy.get(this._defaultColName).type(colId, { force: true });
+  }
+
+  public toggleColumnEditableViaColSettingsPane(
+    columnName: string,
+    tableVersion: "v1" | "v2" = "v2",
+    editable = true,
+    goBackToPropertyPane = true,
+  ) {
+    this.EditColumn(columnName, tableVersion);
+    this.propPane.TogglePropertyState(
+      "Editable",
+      editable === true ? "On" : "Off",
+    );
+    goBackToPropertyPane && this.propPane.NavigateBackToPropertyPane();
   }
 
   public EditColumn(columnName: string, tableVersion: "v1" | "v2") {
@@ -619,18 +639,24 @@ export class Table {
     this.agHelper.GetNClick(colSettings);
   }
 
-  public ClickOnEditIcon(rowIndex: number, colIndex: number) {
+  public ClickOnEditIcon(
+    rowIndex: number,
+    colIndex: number,
+    isSelectColumn: boolean = false,
+  ) {
     this.agHelper.HoverElement(this._tableRow(rowIndex, colIndex, "v2"));
     this.agHelper.GetNClick(
       this._tableRow(rowIndex, colIndex, "v2") + " " + this._editCellIconDiv,
       0,
       true,
     );
-    this.agHelper.AssertElementVisibility(
-      this._tableRow(rowIndex, colIndex, "v2") +
-        " " +
-        this._editCellEditorInput,
-    );
+    if (!isSelectColumn) {
+      this.agHelper.AssertElementVisibility(
+        this._tableRow(rowIndex, colIndex, "v2") +
+          " " +
+          this._editCellEditorInput,
+      );
+    }
   }
 
   public EditTableCell(
@@ -656,12 +682,11 @@ export class Table {
     toSaveNewValue = false,
     force = false,
   ) {
-    this.agHelper.UpdateInputValue(
+    this.agHelper.ClearNType(
       this._tableRow(rowIndex, colIndex, "v2") +
         " " +
         this._editCellEditorInput,
       newValue.toString(),
-      force,
     );
     toSaveNewValue &&
       this.agHelper.TypeText(this._editCellEditorInput, "{enter}", {
@@ -817,5 +842,21 @@ export class Table {
     this.agHelper
       .GetText(this._listActivePage(version), "text")
       .then(($newPageNo) => expect(Number($newPageNo)).to.eq(pageNumber));
+  }
+
+  public DiscardEditRow(row: number, col: number, verify = true) {
+    /*
+     * Why not get it with text `Discard`?
+     * We've tried using selector: `[data-colindex="${col}"][data-rowindex="${row}"] button span:contains('Discard')` and this dosn't work, making this spec fail.
+     */
+    const selector = `${this._tableRow(row, col, "v2")} button`;
+
+    cy.get(selector).eq(1).should("be.enabled");
+    this.agHelper.GetHoverNClick(selector, 1, true);
+    verify && cy.get(selector).eq(1).should("be.disabled");
+  }
+
+  public GetTableDataSelector(rowNum: number, colNum: number): string {
+    return `.t--widget-tablewidgetv2 .tbody .td[data-rowindex=${rowNum}][data-colindex=${colNum}]`;
   }
 }

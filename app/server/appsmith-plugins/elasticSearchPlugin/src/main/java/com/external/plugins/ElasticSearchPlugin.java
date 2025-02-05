@@ -15,6 +15,7 @@ import com.appsmith.external.plugins.PluginExecutor;
 import com.external.plugins.exceptions.ElasticSearchErrorMessages;
 import com.external.plugins.exceptions.ElasticSearchPluginError;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
@@ -51,6 +52,7 @@ import java.util.regex.Pattern;
 
 import static com.appsmith.external.constants.ActionConstants.ACTION_CONFIGURATION_BODY;
 import static com.appsmith.external.constants.ActionConstants.ACTION_CONFIGURATION_PATH;
+import static org.apache.commons.lang3.StringUtils.isBlank;
 
 public class ElasticSearchPlugin extends BasePlugin {
 
@@ -78,12 +80,15 @@ public class ElasticSearchPlugin extends BasePlugin {
                 DatasourceConfiguration datasourceConfiguration,
                 ActionConfiguration actionConfiguration) {
 
+            log.debug(Thread.currentThread().getName() + ": execute() called for ElasticSearch plugin.");
             final Map<String, Object> requestData = new HashMap<>();
 
             String query = actionConfiguration.getBody();
             List<RequestParamDTO> requestParams = new ArrayList<>();
 
             return Mono.fromCallable(() -> {
+                        log.debug(Thread.currentThread().getName()
+                                + ": creating action execution result from ElasticSearch plugin.");
                         final ActionExecutionResult result = new ActionExecutionResult();
 
                         String body = query;
@@ -165,6 +170,8 @@ public class ElasticSearchPlugin extends BasePlugin {
                     })
                     // Now set the request in the result to be returned to the server
                     .map(result -> {
+                        log.debug(Thread.currentThread().getName()
+                                + ": setting the request in the result to be returned from ElasticSearch plugin.");
                         ActionExecutionRequest request = new ActionExecutionRequest();
                         request.setProperties(requestData);
                         request.setQuery(query);
@@ -190,7 +197,7 @@ public class ElasticSearchPlugin extends BasePlugin {
 
         @Override
         public Mono<RestClient> datasourceCreate(DatasourceConfiguration datasourceConfiguration) {
-
+            log.debug(Thread.currentThread().getName() + ": datasourceCreate() called for ElasticSearch plugin.");
             final List<HttpHost> hosts = new ArrayList<>();
 
             for (Endpoint endpoint : datasourceConfiguration.getEndpoints()) {
@@ -245,6 +252,7 @@ public class ElasticSearchPlugin extends BasePlugin {
 
         @Override
         public Set<String> validateDatasource(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName() + ": validateDatasource() called for ElasticSearch plugin.");
             Set<String> invalids = new HashSet<>();
 
             if (CollectionUtils.isEmpty(datasourceConfiguration.getEndpoints())) {
@@ -269,6 +277,7 @@ public class ElasticSearchPlugin extends BasePlugin {
 
         @Override
         public Mono<DatasourceTestResult> testDatasource(RestClient connection) {
+            log.debug(Thread.currentThread().getName() + ": testDatasource() called for ElasticSearch plugin.");
             return Mono.fromCallable(() -> {
                 if (connection == null) {
                     return new DatasourceTestResult("Null client object to ElasticSearch.");
@@ -314,6 +323,25 @@ public class ElasticSearchPlugin extends BasePlugin {
 
                 return new DatasourceTestResult();
             });
+        }
+
+        @Override
+        public Mono<String> getEndpointIdentifierForRateLimit(DatasourceConfiguration datasourceConfiguration) {
+            log.debug(Thread.currentThread().getName()
+                    + ": getEndpointIdentifierForRateLimit() called for ElasticSearch plugin.");
+            List<Endpoint> endpoints = datasourceConfiguration.getEndpoints();
+            String identifier = "";
+            // When hostname and port both are available, both will be used as identifier
+            // When port is not present, default port along with hostname will be used
+            // This ensures rate limiting will only be applied if hostname is present
+            if (endpoints.size() > 0) {
+                String hostName = endpoints.get(0).getHost();
+                Long port = endpoints.get(0).getPort();
+                if (!isBlank(hostName)) {
+                    identifier = hostName + "_" + ObjectUtils.defaultIfNull(port, ELASTIC_SEARCH_DEFAULT_PORT);
+                }
+            }
+            return Mono.just(identifier);
         }
     }
 }

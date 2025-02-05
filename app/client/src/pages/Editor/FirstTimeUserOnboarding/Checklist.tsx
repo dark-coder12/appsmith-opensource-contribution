@@ -1,18 +1,17 @@
 import React, { useEffect, useRef } from "react";
-import { Button, Divider, Text, Tooltip } from "design-system";
+import { Button, Divider, Text, Tooltip } from "@appsmith/ads";
 import styled from "styled-components";
 import { useDispatch, useSelector } from "react-redux";
 import {
   getCanvasWidgets,
   getPageActions,
   getSavedDatasources,
-} from "selectors/entitiesSelector";
-import { useIsWidgetActionConnectionPresent } from "pages/Editor/utils";
-import { getEvaluationInverseDependencyMap } from "selectors/dataTreeSelectors";
+} from "ee/selectors/entitiesSelector";
 import { INTEGRATION_TABS } from "constants/routes";
 import {
   getApplicationLastDeployedAt,
   getCurrentApplicationId,
+  getCurrentBasePageId,
   getCurrentPageId,
 } from "selectors/editorSelectors";
 import history from "utils/history";
@@ -23,12 +22,13 @@ import {
   signpostingMarkAllRead,
   toggleInOnboardingWidgetSelection,
 } from "actions/onboardingActions";
-import { ReduxActionTypes } from "@appsmith/constants/ReduxActionConstants";
+import { ReduxActionTypes } from "ee/constants/ReduxActionConstants";
 import {
   getFirstTimeUserOnboardingComplete,
   getSignpostingStepStateByStep,
+  isWidgetActionConnectionPresent,
 } from "selectors/onboardingSelectors";
-import AnalyticsUtil from "utils/AnalyticsUtil";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
 import { forceOpenWidgetPanel } from "actions/widgetSidebarActions";
 import { bindDataOnCanvas } from "actions/pluginActionActions";
 import {
@@ -43,17 +43,18 @@ import {
   SIGNPOSTING_POPUP_SUBTITLE,
   SIGNPOSTING_SUCCESS_POPUP,
   SIGNPOSTING_TOOLTIP,
-} from "@appsmith/constants/messages";
+} from "ee/constants/messages";
 import type { Datasource } from "entities/Datasource";
-import type { ActionDataState } from "reducers/entityReducers/actionsReducer";
+import type { ActionDataState } from "ee/reducers/entityReducers/actionsReducer";
 import type { CanvasWidgetsReduxState } from "reducers/entityReducers/canvasWidgetsReducer";
 import { SIGNPOSTING_STEP } from "./Utils";
-import { builderURL, integrationEditorURL } from "RouteBuilder";
+import { builderURL, integrationEditorURL } from "ee/RouteBuilder";
 import { DatasourceCreateEntryPoints } from "constants/Datasource";
 import classNames from "classnames";
 import lazyLottie from "utils/lazyLottie";
 import tickMarkAnimationURL from "assets/lottie/guided-tour-tick-mark.json.txt";
-import { getAppsmithConfigs } from "@appsmith/configs";
+import { getAppsmithConfigs } from "ee/configs";
+import { DOCS_BASE_URL } from "constants/ThirdPartyConstants";
 const { intercomAppID } = getAppsmithConfigs();
 
 const StyledDivider = styled(Divider)`
@@ -164,6 +165,7 @@ function getSuggestedNextActionAndCompletedTasks(
   isDeployed: boolean,
 ) {
   let suggestedNextAction;
+
   if (!datasources.length) {
     suggestedNextAction = createMessage(
       () => ONBOARDING_CHECKLIST_ACTIONS.CONNECT_A_DATASOURCE,
@@ -185,20 +187,25 @@ function getSuggestedNextActionAndCompletedTasks(
       () => ONBOARDING_CHECKLIST_ACTIONS.DEPLOY_APPLICATIONS,
     );
   }
+
   let completedTasks = 0;
 
   if (datasources.length) {
     completedTasks++;
   }
+
   if (actions.length) {
     completedTasks++;
   }
+
   if (Object.keys(widgets).length > 1) {
     completedTasks++;
   }
+
   if (isConnectionPresent) {
     completedTasks++;
   }
+
   if (isDeployed) {
     completedTasks++;
   }
@@ -221,6 +228,7 @@ function CheckListItem(props: {
     getSignpostingStepStateByStep(state, props.step),
   );
   const tickMarkRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (props.completed) {
       const anim = lazyLottie.loadAnimation({
@@ -230,6 +238,7 @@ function CheckListItem(props: {
         loop: false,
         autoplay: false,
       });
+
       if (!stepState?.read) {
         anim.play();
       } else {
@@ -329,10 +338,7 @@ function CheckListItem(props: {
                 AnalyticsUtil.logEvent("SIGNPOSTING_INFO_CLICK", {
                   step: props.step,
                 });
-                window.open(
-                  props.docLink ?? "https://docs.appsmith.com/",
-                  "_blank",
-                );
+                window.open(props.docLink ?? DOCS_BASE_URL, "_blank");
                 e.stopPropagation();
               }}
               startIcon="book-line"
@@ -349,14 +355,10 @@ export default function OnboardingChecklist() {
   const dispatch = useDispatch();
   const datasources = useSelector(getSavedDatasources);
   const pageId = useSelector(getCurrentPageId);
+  const basePageId = useSelector(getCurrentBasePageId);
   const actions = useSelector(getPageActions(pageId));
   const widgets = useSelector(getCanvasWidgets);
-  const deps = useSelector(getEvaluationInverseDependencyMap);
-  const isConnectionPresent = useIsWidgetActionConnectionPresent(
-    widgets,
-    actions,
-    deps,
-  );
+  const isConnectionPresent = useSelector(isWidgetActionConnectionPresent);
   const applicationId = useSelector(getCurrentApplicationId);
   const isDeployed = !!useSelector(getApplicationLastDeployedAt);
   const { completedTasks } = getSuggestedNextActionAndCompletedTasks(
@@ -369,20 +371,24 @@ export default function OnboardingChecklist() {
   const isFirstTimeUserOnboardingComplete = useSelector(
     getFirstTimeUserOnboardingComplete,
   );
+
   const onconnectYourWidget = () => {
     const action = actions[0];
+
     dispatch(showSignpostingModal(false));
-    if (action && applicationId && pageId) {
+
+    if (action && applicationId && basePageId) {
       dispatch(
         bindDataOnCanvas({
           queryId: action.config.id,
           applicationId,
-          pageId,
+          basePageId,
         }),
       );
     } else {
-      history.push(builderURL({ pageId }));
+      history.push(builderURL({ basePageId }));
     }
+
     AnalyticsUtil.logEvent("SIGNPOSTING_MODAL_CONNECT_WIDGET_CLICK");
   };
 
@@ -500,9 +506,10 @@ export default function OnboardingChecklist() {
               },
             );
             dispatch(showSignpostingModal(false));
+
             history.push(
               integrationEditorURL({
-                pageId,
+                basePageId,
                 selectedTab: INTEGRATION_TABS.NEW,
               }),
             );
@@ -523,12 +530,13 @@ export default function OnboardingChecklist() {
             dispatch(showSignpostingModal(false));
             history.push(
               integrationEditorURL({
-                pageId,
+                basePageId,
                 selectedTab: INTEGRATION_TABS.ACTIVE,
               }),
             );
             // Event for datasource creation click
             const entryPoint = DatasourceCreateEntryPoints.NEW_APP_CHECKLIST;
+
             AnalyticsUtil.logEvent("NAVIGATE_TO_CREATE_NEW_DATASOURCE_PAGE", {
               entryPoint,
             });
@@ -549,7 +557,7 @@ export default function OnboardingChecklist() {
             dispatch(showSignpostingModal(false));
             dispatch(toggleInOnboardingWidgetSelection(true));
             dispatch(forceOpenWidgetPanel(true));
-            history.push(builderURL({ pageId }));
+            history.push(builderURL({ basePageId }));
           }}
           step={SIGNPOSTING_STEP.ADD_WIDGETS}
           testid={"checklist-widget"}

@@ -1,27 +1,25 @@
 import React from "react";
 import styled from "styled-components";
-import { DATASOURCE_REST_API_FORM } from "@appsmith/constants/forms";
+import { DATASOURCE_REST_API_FORM } from "ee/constants/forms";
 import type { Datasource } from "entities/Datasource";
 import type { InjectedFormProps } from "redux-form";
 import { getFormMeta, reduxForm } from "redux-form";
-import AnalyticsUtil from "utils/AnalyticsUtil";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
 import FormControl from "pages/Editor/FormControl";
 import { StyledInfo } from "components/formControls/InputTextControl";
 import { connect } from "react-redux";
-import type { AppState } from "@appsmith/reducers";
-import { PluginType } from "entities/Action";
-import { Button, Callout } from "design-system";
+import type { AppState } from "ee/reducers";
+import { Callout } from "@appsmith/ads";
 import {
   createDatasourceFromForm,
-  redirectAuthorizationCode,
   toggleSaveActionFlag,
   updateDatasource,
 } from "actions/datasourceActions";
-import type { ReduxAction } from "@appsmith/constants/ReduxActionConstants";
+import type { ReduxAction } from "actions/ReduxActionTypes";
 import {
   datasourceToFormValues,
   formValuesToDatasource,
-} from "transformers/RestAPIDatasourceFormTransformer";
+} from "PluginActionEditor/transformers/RestAPIDatasourceFormTransformer";
 import type {
   ApiDatasourceForm,
   AuthorizationCode,
@@ -32,22 +30,22 @@ import {
   AuthType,
   GrantType,
 } from "entities/Datasource/RestAPIForm";
-import { createMessage, INVALID_URL } from "@appsmith/constants/messages";
+import { createMessage, INVALID_URL } from "ee/constants/messages";
 import Collapsible from "./Collapsible";
 import _ from "lodash";
 import FormLabel from "components/editorComponents/FormLabel";
 import CopyToClipBoard from "components/designSystems/appsmith/CopyToClipBoard";
 import { updateReplayEntity } from "actions/pageActions";
-import { ENTITY_TYPE } from "entities/AppsmithConsole";
+import { ENTITY_TYPE } from "ee/entities/AppsmithConsole/utils";
 import { TEMP_DATASOURCE_ID } from "constants/Datasource";
-import { hasManageDatasourcePermission } from "@appsmith/utils/permissionHelpers";
 import { Form } from "./DBForm";
-import {
-  getCurrentEnvName,
-  getCurrentEnvironment,
-} from "@appsmith/utils/Environments";
+import { selectFeatureFlagCheck } from "ee/selectors/featureFlagsSelectors";
+import { getHasManageDatasourcePermission } from "ee/utils/BusinessFeatures/permissionPageHelpers";
+import { FEATURE_FLAG } from "ee/entities/FeatureFlag";
 
 interface DatasourceRestApiEditorProps {
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   initializeReplayEntity: (id: string, data: any) => void;
   updateDatasource: (
     formValues: Datasource,
@@ -55,6 +53,7 @@ interface DatasourceRestApiEditorProps {
     onSuccess?: ReduxAction<unknown>,
   ) => void;
   currentEnvironment: string;
+  currentEnvironmentName: string;
   isSaving: boolean;
   applicationId: string;
   datasourceId: string;
@@ -67,10 +66,11 @@ interface DatasourceRestApiEditorProps {
   formName: string;
   pluginName: string;
   pluginPackageName: string;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   formMeta: any;
   messages?: Array<string>;
   datasourceName: string;
-  showFilterComponent: boolean;
   createDatasource: (
     data: Datasource,
     onSuccess?: ReduxAction<unknown>,
@@ -79,6 +79,7 @@ interface DatasourceRestApiEditorProps {
   triggerSave?: boolean;
   datasourceDeleteTrigger: () => void;
   viewMode: boolean;
+  isFeatureEnabled: boolean;
 }
 
 type Props = DatasourceRestApiEditorProps &
@@ -95,6 +96,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
   constructor(props: Props) {
     super(props);
   }
+
   componentDidMount() {
     // set replay data
     this.props.initializeReplayEntity(
@@ -123,17 +125,23 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
     }
   }
 
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   isDirty(prop: any) {
     const { formMeta } = this.props;
+
     return _.get(formMeta, prop + ".visited", false);
   }
 
   ensureAPIKeyDefaultsAreCorrect = () => {
     if (!this.props.formData) return;
+
     const { authentication } = this.props.formData;
+
     if (!authentication || !_.get(authentication, "addTo")) {
       this.props.change("authentication.addTo", ApiKeyAuthType.Header);
     }
+
     if (!authentication || !_.get(authentication, "headerPrefix")) {
       this.props.change("authentication.headerPefix", "ApiKeyAuthType.Header");
     }
@@ -141,6 +149,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
 
   ensureOAuthDefaultsAreCorrect = () => {
     if (!this.props.formData) return;
+
     const { authentication } = this.props.formData;
 
     if (!authentication || !_.get(authentication, "grantType")) {
@@ -149,9 +158,11 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
         GrantType.ClientCredentials,
       );
     }
+
     if (_.get(authentication, "isTokenHeader") === undefined) {
       this.props.change("authentication.isTokenHeader", true);
     }
+
     if (
       !this.isDirty("authentication.headerPrefix") &&
       _.get(authentication, "headerPrefix") === undefined
@@ -195,17 +206,24 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
   };
 
   validate = (): boolean => {
-    const { datasource, datasourceId, formData } = this.props;
+    const { datasource, datasourceId, formData, isFeatureEnabled } = this.props;
     const createMode = datasourceId === TEMP_DATASOURCE_ID;
-    const canManageDatasource = hasManageDatasourcePermission(
+    const canManageDatasource = getHasManageDatasourcePermission(
+      isFeatureEnabled,
       datasource?.userPermissions || [],
     );
+
     if (!formData) return true;
+
     return !formData.url || (!createMode && !canManageDatasource);
   };
 
   getSanitizedFormData = () =>
-    formValuesToDatasource(this.props.datasource, this.props.formData);
+    formValuesToDatasource(
+      this.props.datasource,
+      this.props.formData,
+      this.props.currentEnvironment,
+    );
 
   save = (onSuccess?: ReduxAction<unknown>) => {
     this.props.toggleSaveActionFlag(true);
@@ -214,8 +232,8 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
     AnalyticsUtil.logEvent("SAVE_DATA_SOURCE_CLICK", {
       pageId: this.props.pageId,
       appId: this.props.applicationId,
-      environmentId: getCurrentEnvironment(),
-      environmentName: getCurrentEnvName(),
+      environmentId: this.props.currentEnvironment,
+      environmentName: this.props.currentEnvironmentName,
       pluginName: this.props.pluginName || "",
       pluginPackageName: this.props.pluginPackageName || "",
     });
@@ -239,6 +257,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
 
   urlValidator = (value: string) => {
     const validationRegex = "^(http|https)://";
+
     if (value) {
       const regex = new RegExp(validationRegex);
 
@@ -259,7 +278,6 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
         onSubmit={(e) => {
           e.preventDefault();
         }}
-        showFilterComponent={this.props.showFilterComponent}
         viewMode={this.props.viewMode}
       >
         {this.renderEditor()}
@@ -268,16 +286,9 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
   };
 
   renderEditor = () => {
-    const { datasource, datasourceId, formData, isSaving, messages, pageId } =
-      this.props;
-    const isAuthorized = _.get(
-      datasource,
-      "datasourceConfiguration.authentication.isAuthorized",
-      false,
-    );
-    if (!formData) return;
+    const { formData, messages } = this.props;
 
-    const { authentication } = formData;
+    if (!formData) return;
 
     return (
       <>
@@ -289,29 +300,6 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
           ))}
         {this.renderGeneralSettings()}
         {this.renderOauth2AdvancedSettings()}
-        {formData.authType &&
-          formData.authType === AuthType.OAuth2 &&
-          _.get(authentication, "grantType") ===
-            GrantType.AuthorizationCode && (
-            <FormInputContainer>
-              <Button
-                className="t--save-and-authorize-datasource"
-                isDisabled={this.validate()}
-                isLoading={isSaving}
-                onClick={() =>
-                  this.save(
-                    redirectAuthorizationCode(
-                      pageId,
-                      datasourceId,
-                      PluginType.API,
-                    ),
-                  )
-                }
-              >
-                {isAuthorized ? "Save and Re-Authorize" : "Save and Authorize"}
-              </Button>
-            </FormInputContainer>
-          )}
       </>
     );
   };
@@ -341,7 +329,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
             "isSendSessionEnabled",
             "Send Appsmith signature header",
             "",
-            true,
+            false,
           )}
         </FormInputContainer>
         {formData.isSendSessionEnabled && (
@@ -361,7 +349,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
             "connection.ssl.authTypeControl",
             "Use Self-Signed Certificate",
             "",
-            true,
+            false,
           )}
         </FormInputContainer>
         {this.renderSelfSignedCertificateFields()}
@@ -423,6 +411,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
 
   renderSelfSignedCertificateFields = () => {
     const { connection } = this.props.formData;
+
     if (connection?.ssl.authTypeControl) {
       return (
         <div style={{ marginTop: "16px" }}>
@@ -442,6 +431,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
     const { authType } = this.props.formData;
 
     let content;
+
     if (authType === AuthType.OAuth2) {
       content = this.renderOauth2();
     } else if (authType === AuthType.basic) {
@@ -451,6 +441,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
     } else if (authType === AuthType.bearerToken) {
       content = this.renderBearerToken();
     }
+
     if (content) {
       return content;
     }
@@ -458,6 +449,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
 
   renderApiKey = () => {
     const { authentication } = this.props.formData;
+
     return (
       <>
         <FormInputContainer data-location-id={btoa("authentication.label")}>
@@ -565,8 +557,11 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
       | ClientCredentials
       | AuthorizationCode
       | undefined;
+
     if (!authentication) return;
+
     let content;
+
     switch (authentication.grantType) {
       case GrantType.AuthorizationCode:
         content = this.renderOauth2AuthorizationCode();
@@ -604,6 +599,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
 
   renderOauth2Common = () => {
     const { formData } = this.props;
+
     return (
       <>
         <FormInputContainer
@@ -625,6 +621,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
             "",
             false,
             "",
+            !!_.get(formData.authentication, "isTokenHeader"),
           )}
         </FormInputContainer>
         {_.get(formData.authentication, "isTokenHeader") && (
@@ -708,6 +705,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
             "",
             false,
             "",
+            !!_.get(formData.authentication, "isAuthorizationHeader"),
           )}
         </FormInputContainer>
       </>
@@ -749,6 +747,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
               "",
               false,
               "",
+              !!_.get(authentication, "sendScopeWithRefreshToken"),
             )}
           </FormInputContainer>
         )}
@@ -778,7 +777,9 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
           </FormInputContainer>
         )}
         {isConnectSelfSigned && (
-          <FormInputContainer data-location-id={btoa("selfsignedcert")}>
+          <FormInputContainer
+            data-location-id={btoa("authentication.useSelfSignedCert")}
+          >
             {this.renderCheckboxViaFormControl(
               "authentication.useSelfSignedCert",
               "Use Self-Signed Certificate for Authorization requests",
@@ -832,6 +833,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
 
     const redirectURL =
       window.location.origin + "/api/v1/datasources/authorize";
+
     return (
       <>
         {this.renderOauth2Common()}
@@ -870,6 +872,16 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
             "",
             false,
           )}
+        </FormInputContainer>
+        <FormInputContainer data-location-id={btoa("authentication.expiresIn")}>
+          {this.renderInputTextControlViaFormControl({
+            configProperty: "authentication.expiresIn",
+            label: "Authorization expires in (seconds)",
+            placeholderText: "3600",
+            dataType: "NUMBER",
+            encrypted: false,
+            isRequired: false,
+          })}
         </FormInputContainer>
 
         {!_.get(formData.authentication, "isAuthorizationHeader", true) &&
@@ -932,6 +944,8 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
     placeholderText: string,
     isRequired: boolean,
     subtitle?: string,
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     initialValue?: any,
   ) {
     const config = {
@@ -948,6 +962,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
       formName: this.props.formName,
       initialValue: initialValue,
     };
+
     return (
       <FormControl
         config={config}
@@ -974,6 +989,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
       formName: this.props.formName,
       isRequired: isRequired,
     };
+
     return (
       <FormControl
         config={config}
@@ -1002,6 +1018,7 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
       formName: this.props.formName,
       isRequired: isRequired,
     };
+
     return (
       <FormControl
         config={config}
@@ -1036,27 +1053,43 @@ class DatasourceRestAPIEditor extends React.Component<Props> {
   }
 }
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mapStateToProps = (state: AppState, props: any) => {
-  const { datasource, formName } = props;
+  const { currentEnvironment, datasource, formName } = props;
   const hintMessages = datasource && datasource.messages;
 
+  const isFeatureEnabled = selectFeatureFlagCheck(
+    state,
+    FEATURE_FLAG.license_gac_enabled,
+  );
+
   return {
-    initialValues: datasourceToFormValues(datasource),
+    initialValues: datasourceToFormValues(datasource, currentEnvironment),
     formMeta: getFormMeta(formName)(state),
     messages: hintMessages,
     datasourceName: datasource?.name ?? "",
+    isFeatureEnabled,
   };
 };
 
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mapDispatchToProps = (dispatch: any) => {
   return {
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     initializeReplayEntity: (id: string, data: any) =>
       dispatch(updateReplayEntity(id, data, ENTITY_TYPE.DATASOURCE)),
     updateDatasource: (
+      // TODO: Fix this the next time the file is edited
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       formData: any,
       currEditingEnvId: string,
       onSuccess?: ReduxAction<unknown>,
     ) => dispatch(updateDatasource(formData, currEditingEnvId, onSuccess)),
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createDatasource: (formData: any, onSuccess?: ReduxAction<unknown>) =>
       dispatch(createDatasourceFromForm(formData, onSuccess)),
     toggleSaveActionFlag: (flag: boolean) =>

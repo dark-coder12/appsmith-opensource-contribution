@@ -72,6 +72,7 @@ import static com.external.plugins.constants.FieldName.READ_EXPIRY;
 import static com.external.plugins.constants.FieldName.SMART_SUBSTITUTION;
 import static com.external.plugins.constants.S3PluginConstants.DEFAULT_FILE_NAME;
 import static com.external.plugins.constants.S3PluginConstants.DEFAULT_URL_EXPIRY_IN_MINUTES;
+import static com.external.plugins.constants.S3PluginConstants.GOOGLE_CLOUD_SERVICE_PROVIDER;
 import static com.external.plugins.constants.S3PluginConstants.NO;
 import static com.external.plugins.constants.S3PluginConstants.YES;
 import static com.external.utils.DatasourceUtils.getS3ClientBuilder;
@@ -98,6 +99,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
+import static org.springframework.util.CollectionUtils.isEmpty;
 
 @Slf4j
 public class AmazonS3PluginTest {
@@ -197,6 +199,54 @@ public class AmazonS3PluginTest {
                 .assertNext(executor -> {
                     Set<String> res = executor.validateDatasource(datasourceConfiguration);
                     assertEquals(0, res.size());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    public void testValidateDatasourceWithMissingRegionAndDefaultBucketWithNonAmazonProvider() {
+        DatasourceConfiguration datasourceConfiguration = createDatasourceConfiguration();
+
+        datasourceConfiguration.getProperties().get(1).setValue(GOOGLE_CLOUD_SERVICE_PROVIDER);
+
+        Property defaultBucketProperty = new Property("default bucket", "");
+        datasourceConfiguration.getProperties().add(defaultBucketProperty);
+
+        AmazonS3Plugin.S3PluginExecutor pluginExecutor = new AmazonS3Plugin.S3PluginExecutor();
+        Mono<AmazonS3Plugin.S3PluginExecutor> pluginExecutorMono = Mono.just(pluginExecutor);
+
+        StepVerifier.create(pluginExecutorMono)
+                .assertNext(executor -> {
+                    Set<String> res = executor.validateDatasource(datasourceConfiguration);
+                    // There should be no errors related to the region for GCS, but it should validate the default
+                    // bucket
+                    assertTrue(res.contains(S3ErrorMessages.DS_MANDATORY_PARAMETER_DEFAULT_BUCKET_MISSING_ERROR_MSG));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    public void testValidateDatasourceWithMissingRegionWithNonAmazonProvider() {
+        DatasourceConfiguration datasourceConfiguration = createDatasourceConfiguration();
+
+        datasourceConfiguration.getProperties().get(1).setValue(GOOGLE_CLOUD_SERVICE_PROVIDER);
+
+        Property defaultBucketProperty = new Property("default bucket", "default-bucket");
+        datasourceConfiguration.getProperties().add(defaultBucketProperty);
+
+        AmazonS3Plugin.S3PluginExecutor pluginExecutor = new AmazonS3Plugin.S3PluginExecutor();
+        Mono<AmazonS3Plugin.S3PluginExecutor> pluginExecutorMono = Mono.just(pluginExecutor);
+
+        StepVerifier.create(pluginExecutorMono)
+                .assertNext(executor -> {
+                    Set<String> res = executor.validateDatasource(datasourceConfiguration);
+                    assertFalse(res.contains(S3ErrorMessages.DS_AT_LEAST_ONE_MANDATORY_PARAMETER_MISSING_ERROR_MSG));
+                    assertFalse(res.contains(S3ErrorMessages.DS_MANDATORY_PARAMETER_DEFAULT_BUCKET_MISSING_ERROR_MSG));
+                    assertFalse(res.contains(S3ErrorMessages.DS_MANDATORY_PARAMETER_SECRET_KEY_MISSING_ERROR_MSG));
+                    assertFalse(res.contains(S3ErrorMessages.DS_MANDATORY_PARAMETER_ACCESS_KEY_MISSING_ERROR_MSG));
+                    assertFalse(res.contains(S3ErrorMessages.DS_MANDATORY_PARAMETER_ENDPOINT_URL_MISSING_ERROR_MSG));
+                    assertFalse(res.contains(S3ErrorMessages.NON_EXITED_BUCKET_ERROR_MSG));
+                    assertTrue(res.isEmpty());
                 })
                 .verifyComplete();
     }
@@ -1026,11 +1076,7 @@ public class AmazonS3PluginTest {
                             PluginUtils.getDataValueSafelyFromFormData(
                                     listFilesConfig, LIST_UNSIGNED_URL, STRING_TYPE));
                     assertEquals(
-                            new HashMap<String, Object>() {
-                                {
-                                    put("condition", "AND");
-                                }
-                            },
+                            Map.of("condition", "AND"),
                             PluginUtils.getDataValueSafelyFromFormData(
                                     listFilesConfig, LIST_WHERE, new TypeReference<HashMap<String, Object>>() {}));
 
@@ -1333,6 +1379,8 @@ public class AmazonS3PluginTest {
         signedURLS.add("https://example.signed.url");
         doNothing().when(spyS3PluginExecutor).uploadFileInS3(any(), any(), any(), anyString(), anyString());
         doReturn(signedURLS).when(spyS3PluginExecutor).getSignedUrls(any(), anyString(), any(), any());
+        String unsignedURL = "https://example.unsigned.url";
+        doReturn(unsignedURL).when(spyS3PluginExecutor).createFileUrl(any(), anyString(), anyString());
         Mono<ActionExecutionResult> resultMono = spyS3PluginExecutor.executeParameterized(
                 connection, executeActionDTO, datasourceConfiguration, actionConfiguration);
 
@@ -1340,6 +1388,7 @@ public class AmazonS3PluginTest {
                 .assertNext(result -> {
                     assertTrue(result.getIsExecutionSuccess());
                     assertEquals(((HashMap) result.getBody()).get("signedUrl"), signedURLS.get(0));
+                    assertEquals(((HashMap) result.getBody()).get("url"), unsignedURL);
                 })
                 .verifyComplete();
     }
@@ -1372,6 +1421,12 @@ public class AmazonS3PluginTest {
         signedURLS.add("https://example.signed.url2");
         doNothing().when(spyS3PluginExecutor).uploadFileInS3(any(), any(), any(), anyString(), anyString());
         doReturn(signedURLS).when(spyS3PluginExecutor).getSignedUrls(any(), anyString(), any(), any());
+        ArrayList<String> unsignedURLS = new ArrayList<>();
+        unsignedURLS.add("https://example.unsigned.url1");
+        unsignedURLS.add("https://example.unsigned.url2");
+        doReturn(unsignedURLS)
+                .when(spyS3PluginExecutor)
+                .createFileUrlsFromBody(any(), anyString(), anyString(), anyString());
         Mono<ActionExecutionResult> resultMono = spyS3PluginExecutor.executeParameterized(
                 connection, executeActionDTO, datasourceConfiguration, actionConfiguration);
 
@@ -1382,6 +1437,10 @@ public class AmazonS3PluginTest {
                     assertEquals(x.size(), signedURLS.size());
                     assertEquals(x.get(0), signedURLS.get(0));
                     assertEquals(x.get(1), signedURLS.get(1));
+                    ArrayList<String> urls = (ArrayList<String>) ((HashMap) result.getBody()).get("urls");
+                    assertEquals(urls.size(), unsignedURLS.size());
+                    assertEquals(urls.get(0), unsignedURLS.get(0));
+                    assertEquals(urls.get(1), unsignedURLS.get(1));
                 })
                 .verifyComplete();
     }
@@ -1496,5 +1555,33 @@ public class AmazonS3PluginTest {
         StepVerifier.create(datasourceTestResultMono)
                 .assertNext(result -> assertEquals(0, result.getInvalids().size()))
                 .verifyComplete();
+    }
+
+    @Test
+    public void verify_sanitizeGenerateCRUDPageTemplateInfo_doesNothing_onEmptyActionConfig() {
+        AmazonS3Plugin.S3PluginExecutor pluginExecutor = new AmazonS3Plugin.S3PluginExecutor();
+        List<ActionConfiguration> actionConfigurationList = new ArrayList<>();
+        Map<String, String> mappedColumnsAndTableName = new HashMap<>();
+        pluginExecutor
+                .sanitizeGenerateCRUDPageTemplateInfo(actionConfigurationList, mappedColumnsAndTableName, "test")
+                .block();
+        assertEquals(0, actionConfigurationList.size());
+        assertEquals(true, isEmpty(mappedColumnsAndTableName));
+    }
+
+    @Test
+    public void verify_sanitizeGenerateCRUDPageTemplateInfo_addsInfoToReplaceTemplateBucket_withUserSelectedBucket() {
+        Map<String, String> mappedColumnsAndTableName = new HashMap<>();
+        String userSelectedBucketName = "userBucket";
+        ActionConfiguration actionConfiguration = new ActionConfiguration();
+        Map<String, Object> formData = new HashMap<>();
+        setDataValueSafelyInFormData(formData, "bucket", "templateBucket");
+        actionConfiguration.setFormData(formData);
+        AmazonS3Plugin.S3PluginExecutor pluginExecutor = new AmazonS3Plugin.S3PluginExecutor();
+        pluginExecutor
+                .sanitizeGenerateCRUDPageTemplateInfo(
+                        List.of(actionConfiguration), mappedColumnsAndTableName, userSelectedBucketName)
+                .block();
+        assertEquals(userSelectedBucketName, mappedColumnsAndTableName.get("templateBucket"));
     }
 }

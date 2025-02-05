@@ -1,109 +1,149 @@
-import type { DataTreeDiff } from "@appsmith/workers/Evaluation/evaluationUtils";
+import type { DataTreeDiff } from "ee/workers/Evaluation/evaluationUtils";
 import {
   getAllPaths,
   DataTreeDiffEvent,
-  isWidget,
-  isValidEntity,
   getEntityNameAndPropertyPath,
   isDynamicLeaf,
-} from "@appsmith/workers/Evaluation/evaluationUtils";
+} from "ee/workers/Evaluation/evaluationUtils";
 import type {
-  DataTree,
   WidgetEntity,
-  ConfigTree,
-  WidgetEntityConfig,
-} from "entities/DataTree/dataTreeFactory";
-import type { ActionEntity, JSActionEntity } from "entities/DataTree/types";
+  ActionEntity,
+  JSActionEntity,
+  DataTreeEntityObject,
+} from "ee/entities/DataTree/types";
+import type { ConfigTree, DataTree } from "entities/DataTree/dataTreeTypes";
 import { getEntityId, getEvalErrorPath } from "utils/DynamicBindingUtils";
 import { convertArrayToObject, extractInfoFromBindings } from "./utils";
 import type DataTreeEvaluator from "workers/common/DataTreeEvaluator";
 import { get, isEmpty, set } from "lodash";
-import {
-  getFixedTimeDifference,
-  isWidgetActionOrJsObject,
-} from "../DataTreeEvaluator/utils";
+import { getFixedTimeDifference } from "../DataTreeEvaluator/utils";
 import {
   getEntityDependencies,
   getEntityPathDependencies,
 } from "./utils/getEntityDependencies";
-import { getValidationDependencies } from "./utils/getValidationDependencies";
 import { DependencyMapUtils } from "entities/DependencyMap/DependencyMapUtils";
 import { AppsmithFunctionsWithFields } from "components/editorComponents/ActionCreator/constants";
 import {
   getAllSetterFunctions,
   getEntitySetterFunctions,
-} from "@appsmith/workers/Evaluation/Actions";
+} from "ee/workers/Evaluation/Actions";
+import { isWidgetActionOrJsObject } from "ee/entities/DataTree/utils";
+import { getValidEntityType } from "workers/common/DataTreeEvaluator/utils";
+import appComputationCache from "../AppComputationCache";
+import {
+  EComputationCacheName,
+  type ICacheProps,
+} from "../AppComputationCache/types";
+import type DependencyMap from "entities/DependencyMap";
+import { profileFn } from "instrumentation/generateWebWorkerTraces";
+import type { WebworkerSpanData, Attributes } from "instrumentation/types";
 
-interface CreateDependencyMap {
-  dependencies: Record<string, string[]>;
-  validationDependencies: Record<string, string[]>;
-  inverseDependencies: Record<string, string[]>;
-  inverseValidationDependencies: Record<string, string[]>;
-}
-
-export function createDependencyMap(
+export async function createDependencyMap(
   dataTreeEvalRef: DataTreeEvaluator,
   unEvalTree: DataTree,
   configTree: ConfigTree,
-): CreateDependencyMap {
-  const { allKeys, dependencyMap, validationDependencyMap } = dataTreeEvalRef;
+  cacheProps: ICacheProps,
+  webworkerSpans: Record<string, WebworkerSpanData | Attributes> = {},
+) {
+  const { allKeys, dependencyMap } = dataTreeEvalRef;
+
   const allAppsmithInternalFunctions = convertArrayToObject(
     AppsmithFunctionsWithFields,
   );
   const setterFunctions = getAllSetterFunctions(unEvalTree, configTree);
-  dependencyMap.addNodes(
-    { ...allKeys, ...allAppsmithInternalFunctions, ...setterFunctions },
-    false,
-  );
-  validationDependencyMap.addNodes(allKeys, false);
 
-  Object.keys(configTree).forEach((entityName) => {
-    const entity = unEvalTree[entityName];
-    const entityConfig = configTree[entityName];
-    const entityDependencies = getEntityDependencies(
-      entity,
-      entityConfig,
-      allKeys,
+  profileFn("createDependencyMap.addNodes", {}, webworkerSpans, async () => {
+    dependencyMap.addNodes(
+      { ...allKeys, ...allAppsmithInternalFunctions, ...setterFunctions },
+      false,
     );
-
-    for (const path of Object.keys(entityDependencies)) {
-      const pathDependencies = entityDependencies[path];
-      const { errors, references } = extractInfoFromBindings(
-        pathDependencies,
-        allKeys,
-      );
-      dependencyMap.addDependency(path, references);
-      dataTreeEvalRef.errors.push(...errors);
-    }
-
-    const validationDependencies = getValidationDependencies(
-      entity,
-      entityName,
-      entityConfig as WidgetEntityConfig,
-    );
-    for (const path of Object.keys(validationDependencies)) {
-      validationDependencyMap.addDependency(path, validationDependencies[path]);
-    }
   });
 
-  DependencyMapUtils.makeParentsDependOnChildren(dependencyMap);
+  const dependencyMapCache =
+    await appComputationCache.getCachedComputationResult<
+      Record<string, string[]>
+    >({
+      cacheProps,
+      cacheName: EComputationCacheName.DEPENDENCY_MAP,
+    });
+
+  if (dependencyMapCache) {
+    profileFn("createDependencyMap.addDependency", {}, webworkerSpans, () => {
+      Object.entries(dependencyMapCache).forEach(([path, references]) => {
+        dependencyMap.addDependency(path, references);
+      });
+    });
+  } else {
+    let shouldCache = true;
+
+    Object.keys(configTree).forEach((entityName) => {
+      const entity = unEvalTree[entityName];
+      const entityConfig = configTree[entityName];
+      const entityDependencies = getEntityDependencies(
+        entity as DataTreeEntityObject,
+        entityConfig,
+        allKeys,
+      );
+
+      for (const path of Object.keys(entityDependencies)) {
+        const pathDependencies = entityDependencies[path];
+        const { errors, references } = extractInfoFromBindings(
+          pathDependencies,
+          allKeys,
+        );
+
+        dependencyMap.addDependency(path, references);
+        dataTreeEvalRef.errors.push(...errors);
+
+        if (errors.length) {
+          shouldCache = false;
+        }
+      }
+    });
+
+    DependencyMapUtils.makeParentsDependOnChildren(dependencyMap);
+
+    if (shouldCache) {
+      await appComputationCache.cacheComputationResult({
+        cacheProps,
+        cacheName: EComputationCacheName.DEPENDENCY_MAP,
+        computationResult: dependencyMap.dependencies,
+      });
+    }
+  }
 
   return {
     dependencies: dependencyMap.dependencies,
-    validationDependencies: validationDependencyMap.dependencies,
     inverseDependencies: dependencyMap.inverseDependencies,
-    inverseValidationDependencies: validationDependencyMap.inverseDependencies,
   };
 }
+const addingAffectedNodesToList = (
+  affectedNodes: Set<string>,
+  addedNodes: string[],
+) => {
+  addedNodes.forEach((v) => affectedNodes.add(v));
+};
 
-interface UpdateDependencyMap {
-  dependenciesOfRemovedPaths: string[];
-  removedPaths: Array<{ entityId: string; fullpath: string }>;
-  dependencies: Record<string, string[]>;
-  validationDependencies: Record<string, string[]>;
-  inverseDependencies: Record<string, string[]>;
-  inverseValidationDependencies: Record<string, string[]>;
-}
+const addNodesToDependencyMap =
+  (affectedNodes: Set<string>, dependencyMap: DependencyMap) =>
+  (addedNodes: Record<string, true>, strict?: boolean) => {
+    const didUpdateDep = dependencyMap.addNodes(addedNodes, strict);
+
+    if (didUpdateDep) {
+      addingAffectedNodesToList(affectedNodes, Object.keys(addedNodes));
+    }
+
+    return didUpdateDep;
+  };
+
+const setDependenciesToDependencyMap =
+  (affectedNodes: Set<string>, dependencyMap: DependencyMap) =>
+  (node: string, dependencies: string[]) => {
+    dependencyMap.addDependency(node, dependencies);
+
+    addingAffectedNodesToList(affectedNodes, [node, ...dependencies]);
+  };
+
 export const updateDependencyMap = ({
   configTree,
   dataTreeEvalRef,
@@ -114,20 +154,23 @@ export const updateDependencyMap = ({
   translatedDiffs: Array<DataTreeDiff>;
   unEvalDataTree: DataTree;
   configTree: ConfigTree;
-}): UpdateDependencyMap => {
+}) => {
   const diffCalcStart = performance.now();
   const dependenciesOfRemovedPaths: Array<string> = [];
   const removedPaths: Array<{ entityId: string; fullpath: string }> = [];
   let didUpdateDependencyMap = false;
-  let didUpdateValidationDependencyMap = false;
-  const {
-    allKeys,
-    dependencyMap,
-    oldConfigTree,
-    oldUnEvalTree,
-    validationDependencyMap,
-  } = dataTreeEvalRef;
+  const { allKeys, dependencyMap, oldConfigTree, oldUnEvalTree } =
+    dataTreeEvalRef;
   let { errors: dataTreeEvalErrors } = dataTreeEvalRef;
+  const affectedNodes: Set<string> = new Set();
+  const addNodesToDepedencyMapFn = addNodesToDependencyMap(
+    affectedNodes,
+    dependencyMap,
+  );
+  const setDependenciesToDepedencyMapFn = setDependenciesToDependencyMap(
+    affectedNodes,
+    dependencyMap,
+  );
 
   translatedDiffs.forEach((dataTreeDiff) => {
     const {
@@ -144,7 +187,7 @@ export const updateDependencyMap = ({
       event === DataTreeDiffEvent.DELETE
         ? oldUnEvalTree[entityName]
         : unEvalDataTree[entityName];
-    const entityType = isValidEntity(entity) ? entity.ENTITY_TYPE : "noop";
+    const entityType = getValidEntityType(entity, entityConfig);
 
     if (entityType !== "noop") {
       switch (event) {
@@ -152,19 +195,23 @@ export const updateDependencyMap = ({
           const allAddedPaths = getAllPaths({
             [fullPropertyPath]: get(unEvalDataTree, fullPropertyPath),
           });
+
           // If a new entity is added, add setter functions to all nodes
           if (entityName === fullPropertyPath) {
-            const didUpdateDep = dependencyMap.addNodes(
-              getEntitySetterFunctions(entityConfig, entityName, entity),
+            const addedNodes = getEntitySetterFunctions(
+              entityConfig,
+              entityName,
+              entity,
             );
-            if (didUpdateDep) didUpdateDependencyMap = true;
+
+            didUpdateDependencyMap =
+              addNodesToDepedencyMapFn(addedNodes) || didUpdateDependencyMap;
           }
 
-          const didUpdateDep = dependencyMap.addNodes(allAddedPaths, false);
-          const didUpdateValidationDep =
-            validationDependencyMap.addNodes(allAddedPaths);
-          if (didUpdateDep) didUpdateDependencyMap = true;
-          if (didUpdateValidationDep) didUpdateValidationDependencyMap = true;
+          didUpdateDependencyMap =
+            addNodesToDepedencyMapFn(allAddedPaths, false) ||
+            didUpdateDependencyMap;
+
           if (isWidgetActionOrJsObject(entity)) {
             if (!isDynamicLeaf(unEvalDataTree, fullPropertyPath, configTree)) {
               const entityDependencyMap = getEntityDependencies(
@@ -172,6 +219,7 @@ export const updateDependencyMap = ({
                 configTree[entityName],
                 allKeys,
               );
+
               if (!isEmpty(entityDependencyMap)) {
                 // The entity might already have some dependencies,
                 // so we just want to update those
@@ -179,29 +227,15 @@ export const updateDependencyMap = ({
                   ([path, pathDependencies]) => {
                     const { errors: extractDependencyErrors, references } =
                       extractInfoFromBindings(pathDependencies, allKeys);
-                    dependencyMap.addDependency(path, references);
+
+                    setDependenciesToDepedencyMapFn(path, references);
+
                     didUpdateDependencyMap = true;
                     dataTreeEvalErrors = dataTreeEvalErrors.concat(
                       extractDependencyErrors,
                     );
                   },
                 );
-              }
-              if (isWidget(entity)) {
-                // For widgets,
-                // we need to update the validation dependencyMap
-                const validationDependencies = getValidationDependencies(
-                  entity,
-                  entityName,
-                  entityConfig as WidgetEntityConfig,
-                );
-                for (const path of Object.keys(validationDependencies)) {
-                  validationDependencyMap.addDependency(
-                    path,
-                    validationDependencies[path],
-                  );
-                  didUpdateValidationDependencyMap = true;
-                }
               }
             } else {
               const entityPathDependencies = getEntityPathDependencies(
@@ -212,56 +246,46 @@ export const updateDependencyMap = ({
               );
               const { errors: extractDependencyErrors, references } =
                 extractInfoFromBindings(entityPathDependencies, allKeys);
-              dependencyMap.addDependency(fullPropertyPath, references);
+
+              setDependenciesToDepedencyMapFn(fullPropertyPath, references);
+
               didUpdateDependencyMap = true;
               dataTreeEvalErrors = dataTreeEvalErrors.concat(
                 extractDependencyErrors,
               );
-
-              if (isWidget(entity)) {
-                const validationDependencies = getValidationDependencies(
-                  entity,
-                  entityName,
-                  entityConfig as WidgetEntityConfig,
-                );
-                for (const path of Object.keys(validationDependencies)) {
-                  validationDependencyMap.addDependency(
-                    path,
-                    validationDependencies[path],
-                  );
-                  didUpdateValidationDependencyMap = true;
-                }
-              }
             }
           }
+
           break;
         }
         case DataTreeDiffEvent.DELETE: {
           const allDeletedPaths = getAllPaths({
             [fullPropertyPath]: get(oldUnEvalTree, fullPropertyPath),
           });
+
           // If an entity is deleted, remove all setter functions
           if (entityName === fullPropertyPath) {
             const didUpdateDep = dependencyMap.removeNodes(
               getEntitySetterFunctions(entityConfig, entityName, entity),
             );
+
             if (didUpdateDep) didUpdateDependencyMap = true;
           }
 
           for (const deletedPath of Object.keys(allDeletedPaths)) {
             const pathsThatDependOnDeletedPath =
               dependencyMap.getDependents(deletedPath);
+
             dependenciesOfRemovedPaths.push(...pathsThatDependOnDeletedPath);
           }
 
           const didUpdateDeps = dependencyMap.removeNodes(allDeletedPaths);
-          const didUpdateValidationDeps =
-            validationDependencyMap.removeNodes(allDeletedPaths);
+
           if (didUpdateDeps) didUpdateDependencyMap = true;
-          if (didUpdateValidationDeps) didUpdateValidationDependencyMap = true;
 
           if (isWidgetActionOrJsObject(entity)) {
             const entityId = getEntityId(entity);
+
             for (const deletedPath of Object.keys(allDeletedPaths)) {
               removedPaths.push({
                 entityId: entityId || "",
@@ -269,6 +293,7 @@ export const updateDependencyMap = ({
               });
             }
           }
+
           break;
         }
         case DataTreeDiffEvent.EDIT: {
@@ -289,12 +314,15 @@ export const updateDependencyMap = ({
             );
             const { errors: extractDependencyErrors, references } =
               extractInfoFromBindings(entityPathDependencies, allKeys);
-            dependencyMap.addDependency(fullPropertyPath, references);
+
+            setDependenciesToDepedencyMapFn(fullPropertyPath, references);
+
             didUpdateDependencyMap = true;
             dataTreeEvalErrors = dataTreeEvalErrors.concat(
               extractDependencyErrors,
             );
           }
+
           break;
         }
         default: {
@@ -308,13 +336,14 @@ export const updateDependencyMap = ({
   const updateChangedDependenciesStart = performance.now();
 
   if (didUpdateDependencyMap) {
-    DependencyMapUtils.makeParentsDependOnChildren(dependencyMap);
-    dataTreeEvalRef.sortedDependencies =
-      dataTreeEvalRef.sortDependencies(dependencyMap);
-  }
-  if (didUpdateValidationDependencyMap) {
-    dataTreeEvalRef.sortedValidationDependencies =
-      dataTreeEvalRef.sortDependencies(validationDependencyMap);
+    DependencyMapUtils.linkAffectedChildNodesToParent(
+      dependencyMap,
+      affectedNodes,
+    );
+    dataTreeEvalRef.sortedDependencies = dataTreeEvalRef.sortDependencies(
+      dependencyMap,
+      translatedDiffs,
+    );
   }
 
   /** We need this in order clear out the paths that could have errors when a property is deleted */
@@ -325,6 +354,7 @@ export const updateDependencyMap = ({
   }
 
   const updateChangedDependenciesStop = performance.now();
+
   dataTreeEvalRef.logs.push({
     diffCalcDeps: (diffCalcEnd - diffCalcStart).toFixed(2),
     updateChangedDependencies: getFixedTimeDifference(
@@ -337,8 +367,6 @@ export const updateDependencyMap = ({
     dependenciesOfRemovedPaths,
     removedPaths,
     dependencies: dependencyMap.dependencies,
-    validationDependencies: validationDependencyMap.dependencies,
     inverseDependencies: dependencyMap.inverseDependencies,
-    inverseValidationDependencies: validationDependencyMap.inverseDependencies,
   };
 };

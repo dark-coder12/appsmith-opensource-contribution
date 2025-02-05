@@ -1,3 +1,4 @@
+import { addMatchImageSnapshotPlugin } from "@simonsmith/cypress-image-snapshot/plugin";
 import { defineConfig } from "cypress";
 
 export default defineConfig({
@@ -5,8 +6,7 @@ export default defineConfig({
   requestTimeout: 60000,
   responseTimeout: 60000,
   pageLoadTimeout: 60000,
-  videoUploadOnPasses: false,
-  videoCompression: false,
+  video: true,
   numTestsKeptInMemory: 5,
   experimentalMemoryManagement: true,
   reporterOptions: {
@@ -16,16 +16,18 @@ export default defineConfig({
     json: false,
   },
   chromeWebSecurity: false,
-  viewportHeight: 1100,
+  viewportHeight: 1200,
   viewportWidth: 1400,
   scrollBehavior: "center",
   retries: {
-    runMode: 1,
+    runMode: 0,
     openMode: 0,
   },
   e2e: {
     baseUrl: "http://localhost/",
     setupNodeEvents(on, config) {
+      addMatchImageSnapshotPlugin(on);
+      require("@cypress/grep/src/plugin")(config);
       return require("./cypress/plugins/index.js")(on, config);
     },
     specPattern: "cypress/e2e/**/*.{js,ts}",
@@ -34,6 +36,8 @@ export default defineConfig({
       "cypress/e2e/**/spec_utility.ts",
       "cypress/e2e/GSheet/**/**/*",
       "cypress/e2e/Sanity/Datasources/Airtable_Basic_Spec.ts",
+      "cypress/e2e/Regression/ClientSide/CommunityTemplate/*",
+      "cypress/e2e/Regression/ServerSide/Datasources/ElasticSearch_Basic_Spec.ts",
     ],
   },
 });

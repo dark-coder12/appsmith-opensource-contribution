@@ -81,10 +81,6 @@ export interface RateComponentProps extends ComponentProps {
   inactiveColor?: string;
   isAllowHalf?: boolean;
   readonly?: boolean;
-  leftColumn?: number;
-  rightColumn?: number;
-  topRow?: number;
-  bottomRow?: number;
   minHeight?: number;
 }
 
@@ -106,6 +102,7 @@ function renderStarsWithTooltip(props: RateComponentProps, isActive?: boolean) {
   const rateTooltips = props.tooltips || [];
   const rateTooltipsCount = rateTooltips.length;
   const deltaCount = props.maxCount - rateTooltipsCount;
+
   if (rateTooltipsCount === 0) {
     return (
       <Star

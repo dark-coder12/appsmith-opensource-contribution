@@ -12,7 +12,7 @@ import {
   GIT_UPSTREAM_CHANGES,
   PULL_CHANGES,
   READ_DOCUMENTATION,
-} from "@appsmith/constants/messages";
+} from "ee/constants/messages";
 import styled from "styled-components";
 import {
   Button,
@@ -22,7 +22,7 @@ import {
   ModalFooter,
   Text,
   Tooltip,
-} from "design-system";
+} from "@appsmith/ads";
 import {
   getConflictFoundDocUrlDeploy,
   getGitCommitAndPushError,
@@ -38,7 +38,10 @@ import {
 } from "selectors/gitSyncSelectors";
 import { useDispatch, useSelector } from "react-redux";
 
-import { getCurrentAppGitMetaData } from "@appsmith/selectors/applicationSelectors";
+import {
+  getCurrentAppGitMetaData,
+  getCurrentApplication,
+} from "ee/selectors/applicationSelectors";
 import DeployPreview from "../components/DeployPreview";
 import {
   clearCommitErrorState,
@@ -46,7 +49,6 @@ import {
   clearDiscardErrorState,
   commitToRepoInit,
   discardChanges,
-  fetchGitStatusInit,
   gitPullInit,
 } from "actions/gitSyncActions";
 import StatusLoader from "../components/StatusLoader";
@@ -57,11 +59,8 @@ import GitChangesList from "../components/GitChangesList";
 import ConflictInfo from "../components/ConflictInfo";
 
 import { isEllipsisActive, isMacOrIOS } from "utils/helpers";
-import AnalyticsUtil from "utils/AnalyticsUtil";
-import {
-  getApplicationLastDeployedAt,
-  getCurrentApplication,
-} from "selectors/editorSelectors";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
+import { getApplicationLastDeployedAt } from "selectors/editorSelectors";
 import GIT_ERROR_CODES from "constants/GitErrorCodes";
 import { Container, Space } from "../components/StyledComponents";
 import DiscardChangesWarning from "../components/DiscardChangesWarning";
@@ -91,6 +90,7 @@ function SubmitWrapper(props: {
     const triggerSubmit = isMacOrIOS()
       ? e.metaKey && e.key === "Enter"
       : e.ctrlKey && e.key === "Enter";
+
     if (triggerSubmit) props.onSubmit();
   };
 
@@ -133,6 +133,7 @@ function Deploy() {
       isAutoUpdate,
       isManualUpdate,
     });
+
     if (currentBranch) {
       dispatch(
         commitToRepoInit({
@@ -147,6 +148,7 @@ function Deploy() {
     AnalyticsUtil.logEvent("GS_PULL_GIT_CLICK", {
       source: "GIT_DEPLOY_MODAL",
     });
+
     if (currentBranch) {
       dispatch(gitPullInit());
     }
@@ -155,21 +157,16 @@ function Deploy() {
   const commitButtonText = createMessage(COMMIT_AND_PUSH);
 
   useEffect(() => {
-    dispatch(fetchGitStatusInit());
     return () => {
       dispatch(clearCommitSuccessfulState());
     };
   }, []);
+
   const commitButtonDisabled =
     !hasChangesToCommit || !commitMessage || commitMessage.trim().length < 1;
   const commitButtonLoading = isCommittingInProgress;
 
-  const commitRequired =
-    !!gitStatus?.modifiedPages ||
-    !!gitStatus?.modifiedQueries ||
-    !!gitStatus?.modifiedJSObjects ||
-    !!gitStatus?.modifiedDatasources ||
-    !!gitStatus?.modifiedJSLibs;
+  const commitRequired = !gitStatus?.isClean;
   const isConflicting = !isFetchingGitStatus && !!pullFailed;
   const commitInputDisabled =
     isConflicting ||
@@ -244,10 +241,12 @@ function Deploy() {
   }, [discardError]);
 
   const scrollWrapperRef = React.createRef<HTMLDivElement>();
+
   useEffect(() => {
     if (scrollWrapperRef.current) {
       setTimeout(() => {
         const top = scrollWrapperRef.current?.scrollHeight || 0;
+
         scrollWrapperRef.current?.scrollTo({
           top: top,
         });
@@ -274,6 +273,7 @@ function Deploy() {
         <Container
           data-testid={"t--deploy-tab-container"}
           ref={scrollWrapperRef}
+          style={{ minHeight: 360 }}
         >
           <Section>
             {hasChangesToCommit && (
@@ -345,16 +345,16 @@ function Deploy() {
                   links={[
                     {
                       children: createMessage(READ_DOCUMENTATION),
-                      onClick: (e) => {
-                        e.preventDefault();
+                      onClick: () => {
                         AnalyticsUtil.logEvent(
                           "GS_GIT_DOCUMENTATION_LINK_CLICK",
                           {
                             source: "UPSTREAM_CHANGES_LINK_ON_GIT_DEPLOY_MODAL",
                           },
                         );
-                        window.open(upstreamErrorDocumentUrl, "_blank");
                       },
+                      to: upstreamErrorDocumentUrl,
+                      target: "_blank",
                     },
                   ]}
                 >
@@ -417,7 +417,7 @@ function Deploy() {
           )}
         </Container>
       </ModalBody>
-      <ModalFooter key="footer">
+      <ModalFooter key="footer" style={{ minHeight: 52 }}>
         {showPullButton && (
           <Button
             className="t--pull-button"

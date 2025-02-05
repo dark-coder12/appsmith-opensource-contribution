@@ -1,9 +1,9 @@
-import type { AdminConfigType } from "@appsmith/pages/AdminSettings/config/types";
+import type { AdminConfigType } from "ee/pages/AdminSettings/config/types";
 import {
   CategoryType,
   SettingCategories,
   SettingTypes,
-} from "@appsmith/pages/AdminSettings/config/types";
+} from "ee/pages/AdminSettings/config/types";
 import { AccessControlUpgradePage } from "../../Upgrade/AccessControlUpgradePage";
 
 export const config: AdminConfigType = {
@@ -14,5 +14,5 @@ export const config: AdminConfigType = {
   component: AccessControlUpgradePage,
   title: "Access Control",
   canSave: false,
-  needsUpgrade: true,
+  isFeatureEnabled: false,
 } as AdminConfigType;

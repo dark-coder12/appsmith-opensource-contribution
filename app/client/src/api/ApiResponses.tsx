@@ -1,16 +1,17 @@
-export type APIResponseError = {
+export interface APIResponseError {
   code: string | number;
   message: string;
-};
+  errorType?: string;
+}
 
-export type ResponseMeta = {
+export interface ResponseMeta {
   status: number;
   success: boolean;
   error?: APIResponseError;
-};
+}
 
-export type ApiResponse<T = unknown> = {
+export interface ApiResponse<T = unknown> {
   responseMeta: ResponseMeta;
   data: T;
   code?: string;
-};
+}

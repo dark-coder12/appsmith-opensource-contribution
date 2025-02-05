@@ -1,37 +1,34 @@
 import { all, call, put, select, takeLeading } from "redux-saga/effects";
-import type { ReduxAction } from "@appsmith/constants/ReduxActionConstants";
-import { ReduxActionTypes } from "@appsmith/constants/ReduxActionConstants";
+import type { ReduxAction } from "actions/ReduxActionTypes";
+import { ReduxActionTypes } from "ee/constants/ReduxActionConstants";
 import { snipingModeBindToSelector } from "selectors/editorSelectors";
-import type { ActionData } from "reducers/entityReducers/actionsReducer";
-import { getCanvasWidgets } from "selectors/entitiesSelector";
+import type { ActionData } from "ee/reducers/entityReducers/actionsReducer";
+import { getCanvasWidgets } from "ee/selectors/entitiesSelector";
 import {
   batchUpdateWidgetDynamicProperty,
   batchUpdateWidgetProperty,
 } from "actions/controlActions";
-import AnalyticsUtil from "utils/AnalyticsUtil";
+import AnalyticsUtil from "ee/utils/AnalyticsUtil";
 
 import {
   SNIPING_NOT_SUPPORTED,
   SNIPING_SELECT_WIDGET_AGAIN,
-} from "@appsmith/constants/messages";
+} from "ee/constants/messages";
 
-import WidgetFactory from "utils/WidgetFactory";
+import WidgetFactory from "WidgetProvider/factory";
 import type { CanvasWidgetsReduxState } from "reducers/entityReducers/canvasWidgetsReducer";
 import { setSnipingMode } from "actions/propertyPaneActions";
 import { selectWidgetInitAction } from "actions/widgetSelectionActions";
 import { SelectionRequestType } from "sagas/WidgetSelectUtils";
-import { toast } from "design-system";
-import {
-  AB_TESTING_EVENT_KEYS,
-  FEATURE_FLAG,
-} from "@appsmith/entities/FeatureFlag";
-import { selectFeatureFlagCheck } from "@appsmith/selectors/featureFlagsSelectors";
-import { FEATURE_WALKTHROUGH_KEYS } from "constants/WalkthroughConstants";
-import type { PropertyUpdates } from "widgets/constants";
+import { toast } from "@appsmith/ads";
+import type { PropertyUpdates } from "WidgetProvider/constants";
+import type { ModuleInstance } from "ee/constants/ModuleInstanceConstants";
+import { getModuleInstanceById } from "ee/selectors/moduleInstanceSelectors";
 
 export function* bindDataToWidgetSaga(
   action: ReduxAction<{
     widgetId: string;
+    bindingQuery?: string;
   }>,
 ) {
   const queryId: string = yield select(snipingModeBindToSelector);
@@ -40,25 +37,31 @@ export function* bindDataToWidgetSaga(
       (action: ActionData) => action.config.id === queryId,
     ),
   );
-  const widgetState: CanvasWidgetsReduxState = yield select(getCanvasWidgets);
-  const isDSBindingEnabled: boolean = yield select(
-    selectFeatureFlagCheck,
-    FEATURE_FLAG.ab_ds_binding_enabled,
+  const currentModuleInstance: ModuleInstance | undefined = yield select(
+    getModuleInstanceById,
+    queryId,
   );
+
+  const actionName =
+    currentAction?.config.name || currentModuleInstance?.name || "";
+
+  const widgetState: CanvasWidgetsReduxState = yield select(getCanvasWidgets);
   const selectedWidget = widgetState[action.payload.widgetId];
 
   if (!selectedWidget || !selectedWidget.type) {
     toast.show(SNIPING_SELECT_WIDGET_AGAIN(), {
       kind: "warning",
     });
+
     return;
   }
+
   const { widgetId } = action.payload;
 
   let isValidProperty = true;
 
   // Pranav has an Open PR for this file so just returning for now
-  if (!currentAction) return;
+  if (!actionName) return;
 
   const { getSnipingModeUpdates } = WidgetFactory.getWidgetMethods(
     selectedWidget.type,
@@ -66,21 +69,30 @@ export function* bindDataToWidgetSaga(
 
   let updates: Array<PropertyUpdates> = [];
 
+  const oneClickBindingQuery = `{{${actionName}.data}}`;
+
+  const bindingQuery = action.payload.bindingQuery
+    ? `{{${actionName}.${action.payload.bindingQuery}}}`
+    : oneClickBindingQuery;
+  let isDynamicPropertyPath = true;
+
+  if (bindingQuery === oneClickBindingQuery) {
+    isDynamicPropertyPath = false;
+  }
+
   if (getSnipingModeUpdates) {
     updates = getSnipingModeUpdates?.({
-      data: `{{${currentAction.config.name}.data}}`,
-      run: `{{${currentAction.config.name}.run()}}`,
+      data: bindingQuery,
+      run: `{{${actionName}.run()}}`,
+      isDynamicPropertyPath,
     });
 
     AnalyticsUtil.logEvent("WIDGET_SELECTED_VIA_SNIPING_MODE", {
       widgetType: selectedWidget.type,
-      actionName: currentAction.config.name,
+      actionName: actionName,
       apiId: queryId,
       propertyPath: updates?.map((update) => update.propertyPath).toString(),
       propertyValue: updates?.map((update) => update.propertyPath).toString(),
-      [AB_TESTING_EVENT_KEYS.abTestingFlagLabel]:
-        FEATURE_WALKTHROUGH_KEYS.ab_ds_binding_enabled,
-      [AB_TESTING_EVENT_KEYS.abTestingFlagValue]: isDSBindingEnabled,
     });
   } else {
     isValidProperty = false;
@@ -90,6 +102,7 @@ export function* bindDataToWidgetSaga(
     const updatesMap: Record<string, string> = updates?.reduce(
       (acc: Record<string, string>, update) => {
         acc[update.propertyPath] = update.propertyValue as string;
+
         return acc;
       },
       {},

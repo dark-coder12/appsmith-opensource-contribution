@@ -1,15 +1,15 @@
 import { ObjectsRegistry } from "../../Objects/Registry";
+import { AppSidebar, AppSidebarButton } from "../EditorNavigation";
 export class AppSettings {
   private agHelper = ObjectsRegistry.AggregateHelper;
   private theme = ObjectsRegistry.ThemeSettings;
 
   public locators = {
-    _appSettings: ".t--app-settings-cta",
-    _closeSettings: "#t--close-app-settings-pane",
     _themeSettingsHeader: "#t--theme-settings-header",
     _generalSettingsHeader: "#t--general-settings-header",
     _embedSettingsHeader: "#t--share-embed-settings",
     _navigationSettingsTab: "#t--navigation-settings-header",
+    _importHeader: "#t--update-via-import",
     _navigationSettings: {
       _showNavbar: "#t--navigation-settings-show-navbar",
       _showSignIn: "#t--navigation-settings-show-sign-in",
@@ -60,6 +60,7 @@ export class AppSettings {
     _scrollArrows: ".scroll-arrows",
     _getActivePage: (pageName: string) =>
       `//span[contains(text(),"${pageName}")]//ancestor::a[contains(@class,'is-active')]`,
+    _importBtn: "[data-testid='t--app-setting-import-btn']",
   };
 
   public errorMessageSelector = (fieldId: string) => {
@@ -68,11 +69,11 @@ export class AppSettings {
   };
 
   public OpenAppSettings() {
-    this.agHelper.GetNClick(this.locators._appSettings, 0, true);
+    AppSidebar.navigate(AppSidebarButton.Settings);
   }
 
   public ClosePane() {
-    this.agHelper.GetNClick(this.locators._closeSettings);
+    AppSidebar.navigate(AppSidebarButton.Editor);
   }
 
   public GoToThemeSettings() {
@@ -85,6 +86,10 @@ export class AppSettings {
 
   public GoToEmbedSettings() {
     this.agHelper.GetNClick(this.locators._embedSettingsHeader);
+  }
+
+  public GoToImport() {
+    this.agHelper.GetNClick(this.locators._importHeader);
   }
 
   public GoToPageSettings(pageName: string) {
@@ -106,7 +111,6 @@ export class AppSettings {
     this.GoToThemeSettings();
     this.theme.ChangeThemeColor(primaryColorIndex, "Primary");
     this.theme.ChangeThemeColor(backgroundColorIndex, "Background");
-    this.agHelper.Sleep();
     this.ClosePane();
   }
 
@@ -115,22 +119,23 @@ export class AppSettings {
     pageName: string,
     customSlug?: string,
     editMode = true,
+    restOfUrl = "",
   ) {
+    appName = appName.replace(/\s+/g, "-");
     this.agHelper.AssertElementAbsence(this.locators._updateStatus, 10000);
     cy.location("pathname").then((pathname) => {
+      const pageId = this.agHelper.extractPageIdFromUrl(pathname);
       if (customSlug && customSlug.length > 0) {
-        const pageId = pathname.split("/")[2]?.split("-").pop();
         expect(pathname).to.be.equal(
           `/app/${customSlug}-${pageId}${
             editMode ? "/edit" : ""
-          }`.toLowerCase(),
+          }${restOfUrl}`.toLowerCase(),
         );
       } else {
-        const pageId = pathname.split("/")[3]?.split("-").pop();
         expect(pathname).to.be.equal(
           `/app/${appName}/${pageName}-${pageId}${
             editMode ? "/edit" : ""
-          }`.toLowerCase(),
+          }${restOfUrl}`.toLowerCase(),
         );
       }
     });

@@ -9,8 +9,6 @@ public interface InstanceConfigHelperCE {
 
     Mono<Config> checkInstanceSchemaVersion();
 
-    void printReady();
-
     Mono<Void> performRtsHealthCheck();
 
     boolean getIsRtsAccessible();
@@ -18,4 +16,6 @@ public interface InstanceConfigHelperCE {
     Mono<Boolean> isLicenseValid();
 
     Mono<String> checkMongoDBVersion();
+
+    Mono<Void> updateCacheForTenantFeatureFlags();
 }

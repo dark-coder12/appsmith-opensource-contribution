@@ -7,7 +7,7 @@ import {
   ENTITY_TYPE,
   EvaluationSubstitutionType,
 } from "entities/DataTree/dataTreeFactory";
-import WidgetFactory from "utils/WidgetFactory";
+import WidgetFactory from "WidgetProvider/factory";
 
 import { ValidationTypes } from "constants/WidgetValidation";
 import { RenderModes } from "constants/WidgetConstants";
@@ -20,6 +20,7 @@ describe("generateDataTreeWidget", () => {
       WidgetFactory,
       "getWidgetMetaPropertiesMap",
     );
+
     getMetaProps.mockReturnValueOnce({
       text: undefined,
       isDirty: false,
@@ -30,6 +31,7 @@ describe("generateDataTreeWidget", () => {
       WidgetFactory,
       "getWidgetDerivedPropertiesMap",
     );
+
     getDerivedProps.mockReturnValueOnce({
       isValid: "{{true}}",
       value: "{{this.text}}",
@@ -39,6 +41,7 @@ describe("generateDataTreeWidget", () => {
       WidgetFactory,
       "getWidgetDefaultPropertiesMap",
     );
+
     getDefaultProps.mockReturnValueOnce({
       text: "defaultText",
     });
@@ -47,6 +50,7 @@ describe("generateDataTreeWidget", () => {
       WidgetFactory,
       "getWidgetPropertyPaneConfig",
     );
+
     getPropertyConfig.mockReturnValueOnce([
       {
         sectionName: "General",
@@ -221,12 +225,12 @@ describe("generateDataTreeWidget", () => {
       parentColumnSpace: 0,
       parentRowSpace: 0,
       rightColumn: 0,
-      renderMode: RenderModes.CANVAS,
-      version: 0,
       topRow: 0,
       widgetId: "123",
       widgetName: "Input1",
       ENTITY_TYPE: ENTITY_TYPE.WIDGET,
+      componentWidth: 0,
+      componentHeight: 0,
       defaultText: "",
       type: "INPUT_WIDGET_V2",
       deepObj: {
@@ -292,6 +296,7 @@ describe("generateDataTreeWidget", () => {
           META: "meta.text",
         },
       },
+      dependencyMap: {},
       defaultMetaProps: ["text", "isDirty", "isFocused"],
       defaultProps: {
         text: "defaultText",
@@ -304,7 +309,8 @@ describe("generateDataTreeWidget", () => {
       isMetaPropDirty: true,
     };
 
-    const result = generateDataTreeWidget(widget, widgetMetaProps);
+    const result = generateDataTreeWidget(widget, widgetMetaProps, new Set());
+
     expect(result.unEvalEntity).toStrictEqual(expectedData);
     expect(result.configEntity).toStrictEqual(expectedConfig);
   });
@@ -332,6 +338,8 @@ describe("generateDataTreeWidget", () => {
       },
     };
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const inputSetterConfig: Record<string, any> = {
       __setters: {
         setVisibility: {
@@ -401,6 +409,8 @@ describe("generateDataTreeWidget", () => {
       },
     };
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const jsonFormSetterConfig: Record<string, any> = {
       __setters: {
         setVisibility: {
@@ -529,6 +539,8 @@ describe("generateDataTreeWidget", () => {
       },
     };
 
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tableSetterConfig: Record<string, any> = {
       __setters: {
         setVisibility: {
@@ -547,7 +559,7 @@ describe("generateDataTreeWidget", () => {
         },
         setData: {
           path: "tableData",
-          type: "object",
+          type: "array",
         },
       },
       text: {
@@ -589,7 +601,7 @@ describe("generateDataTreeWidget", () => {
         },
         setData: {
           path: "Table1.tableData",
-          type: "object",
+          type: "array",
         },
         "primaryColumns.action.setIsRequired": {
           path: "Table1.primaryColumns.action.isRequired",

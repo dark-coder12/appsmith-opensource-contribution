@@ -1,24 +1,25 @@
 import React, { memo, useCallback, useEffect, useState } from "react";
 import { Bold, ErrorMessage, SelectWrapper } from "../../styles";
-import { useDatasource } from "./useDatasource";
 import {
   Icon,
   Menu,
-  MenuTrigger,
   MenuContent,
   MenuGroupName,
-  Text,
   MenuItem,
   MenuSeparator,
+  MenuTrigger,
   SearchInput,
-} from "design-system";
+  Text,
+} from "@appsmith/ads";
 import { DropdownOption, LoadMoreOptions } from "./DropdownOption";
 import styled from "styled-components";
 import type { DropdownOptionType } from "../../types";
+import { DEFAULT_QUERY_OPTIONS_COUNTS_TO_SHOW } from "../../constants";
 import {
-  DATASOURCE_DROPDOWN_SECTIONS,
-  DEFAULT_QUERY_OPTIONS_COUNTS_TO_SHOW,
-} from "../../constants";
+  createMessage,
+  DATASOURCE_DROPDOWN_OPTIONS,
+} from "ee/constants/messages";
+import useSource from "./useSource";
 
 const StyledDropdownTrigger = styled.div<{
   isDisabled: boolean;
@@ -37,8 +38,8 @@ const StyledDropdownTrigger = styled.div<{
   justify-content: space-between;
   align-items: center;
   cursor: ${(props) => (props.isDisabled ? "default" : "pointer")};
-  ${(props) => (props.isDisabled ? "pointer-events: none;" : "")}
 
+  ${(props) => (props.isDisabled ? "pointer-events: none;" : "")}
   &:hover {
     border-color: var(--ads-v2-color-gray-400);
   }
@@ -54,7 +55,7 @@ const StyledDropdownTrigger = styled.div<{
 `;
 
 const StyledMenuSeparator = styled(MenuSeparator)`
-  margin: 10px 0px;
+  margin: 10px 0;
 `;
 
 const StyledInputContainer = styled.div`
@@ -74,15 +75,16 @@ function DatasourceDropdown() {
   const [searchText, setSearchText] = useState("");
 
   const {
+    connectToOptions,
+    constants,
     datasourceOptions,
     disabled,
     error,
     isSourceOpen,
     onSourceClose,
     otherOptions,
-    queryOptions,
     selected,
-  } = useDatasource(searchText);
+  } = useSource(searchText);
 
   const [open, setOpen] = useState(false);
 
@@ -90,14 +92,15 @@ function DatasourceDropdown() {
     setOpen(isSourceOpen);
   }, [isSourceOpen]);
 
-  const [showMoreQueries, setShowMoreQueries] = useState(false);
-
   const [showMoreDataSources, setShowMoreDataSources] = useState(false);
+
+  const [showMoreConnectToOptions, setShowMoreConnectToOptions] =
+    useState(false);
 
   const onChange = useCallback((value: string) => setSearchText(value), []);
 
   return (
-    <SelectWrapper data-testId="t--one-click-binding-datasource-selector">
+    <SelectWrapper data-testid="t--one-click-binding-datasource-selector">
       <Menu
         onOpenChange={(open: boolean) => {
           setOpen(open);
@@ -107,7 +110,7 @@ function DatasourceDropdown() {
       >
         <MenuTrigger>
           <StyledDropdownTrigger
-            data-testId="t--one-click-binding-datasource-trigger"
+            data-testid="t--one-click-binding-datasource-trigger"
             isDisabled={disabled}
             isValid={!error}
           >
@@ -128,67 +131,64 @@ function DatasourceDropdown() {
             <StyledInputContainer>
               <SearchInput
                 autoFocus
-                data-testId="t--one-click-binding-datasource--search"
+                data-testid="t--one-click-binding-datasource--search"
                 onChange={onChange}
                 size="md"
+                // @ts-expect-error Fix this the next time the file is edited
                 type="text"
                 value={searchText}
               />
             </StyledInputContainer>
 
-            {!!queryOptions.length && (
-              <StyledMenuGroupName data-testId="t--one-click-binding-datasource-selector--bind-to-query">
-                <Text kind="heading-xs">
-                  {DATASOURCE_DROPDOWN_SECTIONS.CONNECT_TO_QUERY}
-                </Text>
+            {!!connectToOptions.length && (
+              <StyledMenuGroupName data-testid="t--one-click-binding-datasource-selector--bind-to-query">
+                <Text kind="heading-xs">{constants?.connectToText}</Text>
               </StyledMenuGroupName>
             )}
 
-            {queryOptions
+            {connectToOptions
               .slice(
                 0,
-                showMoreQueries
-                  ? queryOptions.length
+                showMoreConnectToOptions
+                  ? connectToOptions.length
                   : DEFAULT_QUERY_OPTIONS_COUNTS_TO_SHOW,
               )
               .map((option) => {
                 return (
                   <MenuItem
-                    data-testId="t--one-click-binding-datasource-selector--query"
-                    key={option.id}
+                    data-testid="t--one-click-binding-datasource-selector--query"
+                    key={option?.id}
                     onSelect={() => {
-                      option.onSelect(option.value, option);
+                      option?.onSelect(option?.value, option);
                       onSourceClose();
                       setOpen(false);
                     }}
                   >
                     <DropdownOption
-                      label={option.label}
-                      leftIcon={option.icon}
+                      label={option?.label}
+                      leftIcon={option?.icon}
                     />
                   </MenuItem>
                 );
               })}
 
-            {!showMoreQueries && (
+            {!showMoreConnectToOptions && (
               <LoadMoreOptions
-                count={queryOptions.length}
+                count={connectToOptions.length}
                 onLoadMore={() => {
-                  setShowMoreQueries(true);
+                  setShowMoreConnectToOptions(true);
                 }}
               />
             )}
 
-            {!!queryOptions.length &&
+            {!!connectToOptions.length &&
               (!!datasourceOptions.length || !!otherOptions.length) && (
                 <StyledMenuSeparator />
               )}
 
             {!!datasourceOptions.length && (
               <StyledMenuGroupName data-testid="t--one-click-binding-datasource-selector--generate-a-query">
-                <Text kind="heading-xs">
-                  {DATASOURCE_DROPDOWN_SECTIONS.CHOOSE_DATASOURCE_TO_CONNECT}
-                </Text>
+                <Text kind="heading-xs">{constants?.bindDatasourceText}</Text>
               </StyledMenuGroupName>
             )}
 
@@ -202,7 +202,7 @@ function DatasourceDropdown() {
               .map((option) => {
                 return (
                   <MenuItem
-                    data-testId="t--one-click-binding-datasource-selector--datasource"
+                    data-testid="t--one-click-binding-datasource-selector--datasource"
                     key={option.id}
                     onSelect={() => {
                       option?.onSelect?.(option.value || "", option);
@@ -240,7 +240,7 @@ function DatasourceDropdown() {
             {!!otherOptions.length && (
               <StyledMenuGroupName data-testid="t--one-click-binding-datasource-selector--other-actions">
                 <Text kind="heading-xs">
-                  {DATASOURCE_DROPDOWN_SECTIONS.OTHER_ACTIONS}
+                  {createMessage(DATASOURCE_DROPDOWN_OPTIONS.OTHER_ACTIONS)}
                 </Text>
               </StyledMenuGroupName>
             )}
@@ -248,7 +248,7 @@ function DatasourceDropdown() {
             {otherOptions.map((option: DropdownOptionType) => {
               return (
                 <MenuItem
-                  data-testId="t--one-click-binding-datasource-selector--other-action"
+                  data-testid="t--one-click-binding-datasource-selector--other-action"
                   key={option.id}
                   onSelect={() => {
                     option.onSelect?.(option.value || "", option);

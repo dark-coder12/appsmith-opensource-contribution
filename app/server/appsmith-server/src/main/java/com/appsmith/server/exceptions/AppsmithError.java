@@ -92,21 +92,14 @@ public enum AppsmithError {
             "Deprecated API",
             ErrorType.BAD_REQUEST,
             null),
-    USER_DOESNT_BELONG_ANY_WORKSPACE(
+
+    USER_NOT_ASSIGNED_TO_ROLE(
             400,
-            AppsmithErrorCode.USER_DOESNT_BELONG_ANY_WORKSPACE.getCode(),
-            "User {0} does not belong to any workspace",
-            AppsmithErrorAction.LOG_EXTERNALLY,
-            "User doesn''t belong to any workspace",
-            ErrorType.INTERNAL_ERROR,
-            null),
-    USER_DOESNT_BELONG_TO_WORKSPACE(
-            400,
-            AppsmithErrorCode.USER_DOESNT_BELONG_TO_WORKSPACE.getCode(),
-            "User {0} does not belong to the workspace with id {1}",
-            AppsmithErrorAction.LOG_EXTERNALLY,
-            "User doesn''t belong to this workspace",
-            ErrorType.INTERNAL_ERROR,
+            AppsmithErrorCode.USER_NOT_ASSIGNED_TO_ROLE.getCode(),
+            "User {0} has not been assigned role {1}",
+            AppsmithErrorAction.DEFAULT,
+            "User has not been assigned to this role",
+            ErrorType.ARGUMENT_ERROR,
             null),
     NO_CONFIGURATION_FOUND_IN_DATASOURCE(
             400,
@@ -191,10 +184,11 @@ public enum AppsmithError {
                     + "  \"message\" : \"Binding path in the widget not found. Please reach out to Appsmith customer support to resolve this.\","
                     + "  \"widgetName\" : \"{1}\","
                     + "  \"widgetId\" : \"{2}\","
-                    + "  \"pageId\" : \"{4}\","
+                    + "  \"creatorId\" : \"{4}\","
                     + "  \"layoutId\" : \"{5}\","
                     + "  \"errorDetail\" : \"{8}\","
-                    + "  \"dynamicBinding\" : {6}",
+                    + "  \"dynamicBinding\" : {6},"
+                    + "  \"creatorType\" : \"{9}\"",
             AppsmithErrorAction.LOG_EXTERNALLY,
             "Invalid dynamic binding reference",
             ErrorType.BAD_REQUEST,
@@ -202,7 +196,7 @@ public enum AppsmithError {
     USER_ALREADY_EXISTS_IN_WORKSPACE(
             400,
             AppsmithErrorCode.USER_ALREADY_EXISTS_IN_WORKSPACE.getCode(),
-            "The user {0} has already been added to the workspace with role {1}. To change the role, please navigate to `Manage Users` page.",
+            "The user {0} has already been added to the workspace with role {1}. To change the role, please navigate to `Manage users` page.",
             AppsmithErrorAction.DEFAULT,
             "User already exists in this workspace",
             ErrorType.BAD_REQUEST,
@@ -505,18 +499,10 @@ public enum AppsmithError {
             "I/O error",
             ErrorType.INTERNAL_ERROR,
             null),
-    MARKETPLACE_TIMEOUT(
-            504,
-            AppsmithErrorCode.MARKETPLACE_TIMEOUT.getCode(),
-            "Marketplace is responding too slowly. Please try again later",
-            AppsmithErrorAction.DEFAULT,
-            "Timeout in marketplace",
-            ErrorType.CONNECTIVITY_ERROR,
-            null),
     DATASOURCE_HAS_ACTIONS(
             409,
             AppsmithErrorCode.DATASOURCE_HAS_ACTIONS.getCode(),
-            "Cannot delete datasource since it has {0} action(s) using it.",
+            "Cannot delete datasource since it has {0} {1} using it.",
             AppsmithErrorAction.DEFAULT,
             "Datasource cannot be deleted",
             ErrorType.BAD_REQUEST,
@@ -544,14 +530,6 @@ public enum AppsmithError {
             AppsmithErrorAction.LOG_EXTERNALLY,
             "Unsupported login method",
             ErrorType.BAD_REQUEST,
-            null),
-    MARKETPLACE_NOT_CONFIGURED(
-            500,
-            AppsmithErrorCode.MARKETPLACE_NOT_CONFIGURED.getCode(),
-            "Marketplace is not configured.",
-            AppsmithErrorAction.DEFAULT,
-            "Marketplace not configured",
-            ErrorType.CONFIGURATION_ERROR,
             null),
     PAYLOAD_TOO_LARGE(
             413,
@@ -596,6 +574,14 @@ public enum AppsmithError {
     GOOGLE_RECAPTCHA_FAILED(
             401,
             AppsmithErrorCode.GOOGLE_RECAPTCHA_FAILED.getCode(),
+            "Google recaptcha verification failed. Please try again.",
+            AppsmithErrorAction.DEFAULT,
+            "Google recaptcha verification failed",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    GOOGLE_RECAPTCHA_INVITE_FLOW_FAILED(
+            400,
+            AppsmithErrorCode.GOOGLE_RECAPTCHA_INVITE_FLOW_FAILED.getCode(),
             "Google recaptcha verification failed. Please try again.",
             AppsmithErrorAction.DEFAULT,
             "Google recaptcha verification failed",
@@ -659,7 +645,7 @@ public enum AppsmithError {
             ErrorType.CONFIGURATION_ERROR,
             null),
     CLOUD_SERVICES_ERROR(
-            500,
+            400,
             AppsmithErrorCode.CLOUD_SERVICES_ERROR.getCode(),
             "Received error from cloud services {0}",
             AppsmithErrorAction.DEFAULT,
@@ -749,9 +735,9 @@ public enum AppsmithError {
     GENERIC_JSON_IMPORT_ERROR(
             400,
             AppsmithErrorCode.GENERIC_JSON_IMPORT_ERROR.getCode(),
-            "Unable to import application in workspace {0}. {1}",
+            "Unable to import artifact in workspace {0}. {1}",
             AppsmithErrorAction.DEFAULT,
-            "Unable to import application in workspace",
+            "Unable to import artifact in workspace",
             ErrorType.BAD_REQUEST,
             null),
     FILE_PART_DATA_BUFFER_ERROR(
@@ -869,18 +855,10 @@ public enum AppsmithError {
     GIT_FILE_IN_USE(
             500,
             AppsmithErrorCode.GIT_FILE_IN_USE.getCode(),
-            "We were unable to place a lock on the file system to perform #commandName command. This error can occur when another operation is in progress. Please try again later.",
+            "We were unable to place a lock on the file system to perform {0} command. This error can occur when another command {1}, which is in progress. Please try again later.",
             AppsmithErrorAction.DEFAULT,
             "Git repo is locked",
             ErrorType.GIT_ACTION_EXECUTION_ERROR,
-            null),
-    CSRF_TOKEN_INVALID(
-            403,
-            AppsmithErrorCode.CSRF_TOKEN_INVALID.getCode(),
-            "CSRF token missing/invalid. Please try again.",
-            AppsmithErrorAction.DEFAULT,
-            "CSRF token missing/invalid",
-            ErrorType.BAD_REQUEST,
             null),
     UNSUPPORTED_IMPORT_OPERATION_FOR_GIT_CONNECTED_APPLICATION(
             400,
@@ -905,6 +883,134 @@ public enum AppsmithError {
             AppsmithErrorAction.DEFAULT,
             "Invalid application property configuration",
             ErrorType.INTERNAL_ERROR,
+            null),
+
+    INVALID_SMTP_CONFIGURATION(
+            400,
+            AppsmithErrorCode.INVALID_SMTP_CONFIGURATION.getCode(),
+            "Your SMTP configuration is invalid. Please configure SMTP to enable to proceed",
+            AppsmithErrorAction.DEFAULT,
+            "Invalid SMTP configuration",
+            ErrorType.INTERNAL_ERROR,
+            null),
+
+    USER_ALREADY_VERIFIED(
+            400,
+            AppsmithErrorCode.USER_EMAIL_ALREADY_VERIFIED.getCode(),
+            "This email has already been verified",
+            AppsmithErrorAction.DEFAULT,
+            "User email already verified",
+            ErrorType.BAD_REQUEST,
+            null),
+
+    EMAIL_VERIFICATION_TOKEN_EXPIRED(
+            498,
+            AppsmithErrorCode.EMAIL_VERIFICATION_TOKEN_EXPIRED.getCode(),
+            "Your email verification link has expired. Please re-trigger email verification",
+            AppsmithErrorAction.DEFAULT,
+            "Email verification token expired",
+            ErrorType.INTERNAL_ERROR,
+            null),
+
+    TENANT_EMAIL_VERIFICATION_NOT_ENABLED(
+            400,
+            AppsmithErrorCode.TENANT_EMAIL_VERIFICATION_NOT_ENABLED.getCode(),
+            "Email verification is not enabled. Please contact your admin",
+            AppsmithErrorAction.DEFAULT,
+            "Email verification not enabled",
+            ErrorType.BAD_REQUEST,
+            null),
+
+    INVALID_EMAIL_VERIFICATION(
+            400,
+            AppsmithErrorCode.INVALID_EMAIL_VERIFICATION.getCode(),
+            "Invalid Email verification request",
+            AppsmithErrorAction.DEFAULT,
+            "Invalid email verification request",
+            ErrorType.INTERNAL_ERROR,
+            null),
+
+    INVALID_METHOD_LEVEL_ANNOTATION_USAGE(
+            403,
+            AppsmithErrorCode.INVALID_METHOD_LEVEL_ANNOTATION_USAGE.getCode(),
+            "Invalid usage for {0} annotation from class {1} on method {2}. {3}. Please contact Appsmith support for more details!",
+            AppsmithErrorAction.LOG_EXTERNALLY,
+            "Invalid usage for custom annotation",
+            ErrorType.CONFIGURATION_ERROR,
+            null),
+    MIGRATION_FAILED(
+            500,
+            AppsmithErrorCode.MIGRATION_FAILED.getCode(),
+            "Migration {0} failed. Reason: {1}. Note: {2}",
+            AppsmithErrorAction.DEFAULT,
+            "Migration failed",
+            ErrorType.INTERNAL_ERROR,
+            null),
+
+    FeatureFlagMigrationFailure(
+            500,
+            AppsmithErrorCode.FEATURE_FLAG_MIGRATION_FAILURE.getCode(),
+            "Migration failed for feature flag {0}, error: {1}",
+            AppsmithErrorAction.DEFAULT,
+            "Migration failed",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    UNABLE_TO_DEPLOY_MISSING_PERMISSION(
+            403,
+            AppsmithErrorCode.UNABLE_TO_DEPLOY_MISSING_PERMISSION.getCode(),
+            "Unable to deploy the Application. You don''t have required permissions for {0}: {1}",
+            AppsmithErrorAction.DEFAULT,
+            "Unable to deploy",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    APPLICATION_NOT_CLONED_MISSING_PERMISSIONS(
+            403,
+            AppsmithErrorCode.APPLICATION_NOT_CLONED_MISSING_PERMISSIONS.getCode(),
+            "Unable to clone application. You don''t have required permissions for {0}: {1}",
+            AppsmithErrorAction.DEFAULT,
+            "Cloning application failed",
+            ErrorType.INTERNAL_ERROR,
+            null),
+
+    APPLICATION_NOT_FORKED_MISSING_PERMISSIONS(
+            403,
+            AppsmithErrorCode.APPLICATION_NOT_FORKED_MISSING_PERMISSIONS.getCode(),
+            "Unable to fork application. You don''t have required permissions for {0}: {1}",
+            AppsmithErrorAction.DEFAULT,
+            "Forking application failed",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    TOO_MANY_FAILED_DATASOURCE_CONNECTION_REQUESTS(
+            429,
+            AppsmithErrorCode.TOO_MANY_FAILED_DATASOURCE_CONNECTION_REQUESTS.getCode(),
+            "Too many failed requests received. Please try again after 5 minutes",
+            AppsmithErrorAction.DEFAULT,
+            "Too many requests",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    DATASOURCE_CONNECTION_RATE_LIMIT_BLOCKING_FAILED(
+            500,
+            AppsmithErrorCode.DATASOURCE_CONNECTION_RATE_LIMIT_BLOCKING_FAILED.getCode(),
+            "Rate limit exhausted, blocking the host name failed",
+            AppsmithErrorAction.DEFAULT,
+            "Rate limit blocking failed",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    TRIGGER_PARAMETERS_EMPTY(
+            400,
+            AppsmithErrorCode.TRIGGER_PARAMETERS_EMPTY.getCode(),
+            "Trigger parameters empty.",
+            AppsmithErrorAction.DEFAULT,
+            "Trigger parameters empty.",
+            ErrorType.INTERNAL_ERROR,
+            null),
+    INSUFFICIENT_PASSWORD_STRENGTH(
+            400,
+            AppsmithErrorCode.INSUFFICIENT_PASSWORD_STRENGTH.getCode(),
+            "Password must be {0}-{1} characters long and include at least one uppercase letter, one lowercase letter, one number, one symbol, and no whitespaces.",
+            AppsmithErrorAction.DEFAULT,
+            "Insufficient password strength",
+            ErrorType.ARGUMENT_ERROR,
             null),
     ;
 

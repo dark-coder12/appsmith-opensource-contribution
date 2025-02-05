@@ -1,20 +1,20 @@
-import type {
-  ReduxAction,
-  ReduxActionWithCallbacks,
-} from "@appsmith/constants/ReduxActionConstants";
-import { ReduxActionTypes } from "@appsmith/constants/ReduxActionConstants";
+import type { ReduxAction, ReduxActionWithCallbacks } from "./ReduxActionTypes";
+import { ReduxActionTypes } from "ee/constants/ReduxActionConstants";
 import type { CreateDatasourceConfig } from "api/DatasourcesApi";
 import type {
   AuthenticationStatus,
   Datasource,
+  DatasourceStructureContext,
   FilePickerActionStatus,
   MockDatasource,
 } from "entities/Datasource";
-import type { PluginType } from "entities/Action";
-import type { executeDatasourceQueryRequest } from "api/DatasourcesApi";
-import type { ResponseMeta } from "api/ApiResponses";
+import type { PluginType } from "entities/Plugin";
+import type { ApiResponse, ResponseMeta } from "api/ApiResponses";
 import { TEMP_DATASOURCE_ID } from "constants/Datasource";
-import type { DatasourceStructureContext } from "pages/Editor/Explorer/Datasources/DatasourceStructureContainer";
+import {
+  ActionParentEntityType,
+  type ActionParentEntityTypeInterface,
+} from "ee/entities/Engine/actionHelpers";
 
 export const createDatasourceFromForm = (
   payload: CreateDatasourceConfig & Datasource,
@@ -29,9 +29,10 @@ export const createDatasourceFromForm = (
   };
 };
 
-export const createTempDatasourceFromForm = (
-  payload: CreateDatasourceConfig | Datasource,
-) => {
+export const createTempDatasourceFromForm = (payload: {
+  pluginId: string;
+  type: PluginType;
+}) => {
   return {
     type: ReduxActionTypes.CREATE_TEMP_DATASOURCE_FROM_FORM_SUCCESS,
     payload,
@@ -61,19 +62,19 @@ export const updateDatasource = (
   };
 };
 
-export type UpdateDatasourceSuccessAction = {
+export interface UpdateDatasourceSuccessAction {
   type: string;
   payload: Datasource;
   redirect: boolean;
   queryParams?: Record<string, string>;
-};
+}
 
-export type CreateDatasourceSuccessAction = {
+export interface CreateDatasourceSuccessAction {
   type: string;
   payload: Datasource;
   isDBCreated: boolean;
   redirect: boolean;
-};
+}
 
 export const updateDatasourceSuccess = (
   payload: Datasource,
@@ -98,14 +99,16 @@ export const createDatasourceSuccess = (
 });
 
 export const redirectAuthorizationCode = (
-  pageId: string,
+  contextId: string,
   datasourceId: string,
   pluginType: PluginType,
+  contextType: ActionParentEntityTypeInterface = ActionParentEntityType.PAGE,
 ) => {
   return {
     type: ReduxActionTypes.REDIRECT_AUTHORIZATION_CODE,
     payload: {
-      pageId,
+      contextId,
+      contextType,
       datasourceId,
       pluginType,
     },
@@ -274,16 +277,20 @@ export const setDatasourceCollapsible = (key: string, isOpen: boolean) => {
   };
 };
 
-export const fetchDatasources = (payload?: { workspaceId?: string }) => {
+export const fetchDatasources = (payload?: {
+  workspaceId?: string;
+  datasources?: ApiResponse<Datasource[]>;
+}) => {
   return {
     type: ReduxActionTypes.FETCH_DATASOURCES_INIT,
     payload,
   };
 };
 
-export const fetchMockDatasources = () => {
+export const fetchMockDatasources = (mockDatasources?: ApiResponse) => {
   return {
     type: ReduxActionTypes.FETCH_MOCK_DATASOURCES_INIT,
+    payload: { mockDatasources },
   };
 };
 
@@ -296,6 +303,8 @@ export interface addMockRequest
     isGeneratePageMode?: string;
     skipRedirection?: boolean;
   }> {
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extraParams?: any;
 }
 
@@ -314,16 +323,6 @@ export const addMockDatasourceToWorkspace = (
   };
 };
 
-export const initDatasourcePane = (
-  pluginType: string,
-  urlId?: string,
-): ReduxAction<{ pluginType: string; id?: string }> => {
-  return {
-    type: ReduxActionTypes.INIT_DATASOURCE_PANE,
-    payload: { id: urlId, pluginType },
-  };
-};
-
 export const storeAsDatasource = () => {
   return {
     type: ReduxActionTypes.STORE_AS_DATASOURCE_INIT,
@@ -337,20 +336,32 @@ export const getOAuthAccessToken = (datasourceId: string) => {
   };
 };
 
-export type executeDatasourceQuerySuccessPayload<T> = {
+export interface executeDatasourceQuerySuccessPayload<T> {
   responseMeta: ResponseMeta;
   data: {
     body: T;
-    trigger: T;
+    trigger?: T;
     headers: Record<string, string[]>;
     statusCode: string;
     isExecutionSuccess: boolean;
   };
-};
+}
+
 type errorPayload = string;
 
+export interface executeDatasourceReduxActionPayload {
+  datasourceId: string;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  template?: Record<string, any>;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: Record<string, any>;
+  isGeneratePage: boolean;
+}
+
 export type executeDatasourceQueryReduxAction<T> = ReduxActionWithCallbacks<
-  executeDatasourceQueryRequest,
+  executeDatasourceReduxActionPayload,
   executeDatasourceQuerySuccessPayload<T>,
   errorPayload
 >;
@@ -362,9 +373,13 @@ export const executeDatasourceQuery = ({
 }: {
   onErrorCallback?: (payload: errorPayload) => void;
   onSuccessCallback?: (
+    // TODO: Fix this the next time the file is edited
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payload: executeDatasourceQuerySuccessPayload<any>,
   ) => void;
-  payload: executeDatasourceQueryRequest;
+  payload: executeDatasourceReduxActionPayload;
+  // TODO: Fix this the next time the file is edited
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }): executeDatasourceQueryReduxAction<any> => {
   return {
     type: ReduxActionTypes.EXECUTE_DATASOURCE_QUERY_INIT,
@@ -490,7 +505,17 @@ export const softRefreshDatasourceStructure = () => ({
   type: ReduxActionTypes.SOFT_REFRESH_DATASOURCE_STRUCTURE,
 });
 
+export const setDatasourcePreviewSelectedTableName = (
+  selectedTableName: string,
+) => {
+  return {
+    type: ReduxActionTypes.SET_DATASOURCE_PREVIEW_SELECTED_TABLE_NAME,
+    payload: {
+      selectedTableName: selectedTableName,
+    },
+  };
+};
+
 export default {
   fetchDatasources,
-  initDatasourcePane,
 };

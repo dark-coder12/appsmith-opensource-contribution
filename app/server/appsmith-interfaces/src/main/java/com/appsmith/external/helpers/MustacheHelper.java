@@ -41,7 +41,7 @@ public class MustacheHelper {
      * {{JSON.stringify(fetchUsers)}}
      * This pattern should return ["JSON.stringify", "fetchUsers"]
      */
-    private static final Pattern pattern = Pattern.compile("[a-zA-Z_][a-zA-Z0-9._]*");
+    private static final Pattern pattern = Pattern.compile("[a-zA-Z_][a-zA-Z0-9._$]*");
     /**
      * Appsmith smart replacement : The regex pattern below looks for '?' or "?". This pattern is later replaced with ?
      * to fit the requirements of prepared statements.
@@ -68,7 +68,7 @@ public class MustacheHelper {
 
     // Possible types of entity references that we want to be filtering
     // from the global identifiers found in a dynamic binding
-    public static final int ACTION_ENTITY_REFERENCES = 0b01;
+    public static final int EXECUTABLE_ENTITY_REFERENCES = 0b01;
     public static final int WIDGET_ENTITY_REFERENCES = 0b10;
 
     /**
@@ -353,8 +353,13 @@ public class MustacheHelper {
                 rendered.append(token.getValue());
             }
         }
-
-        return StringEscapeUtils.unescapeHtml4(rendered.toString());
+        /**
+         * ReplaceAll is used to escape the double quotes symbol with \" so that
+         * JSON remains valid.
+         * &quot; and &#34; both are HTML reserved characters for double quotes (")
+         */
+        return StringEscapeUtils.unescapeHtml4(
+                rendered.toString().replaceAll("&quot;", "\\\\&quot;").replaceAll("&#34;", "\\\\&#34;"));
     }
 
     /**
@@ -372,7 +377,7 @@ public class MustacheHelper {
             String bindingValue = tuple.getT1();
             HashSet<EntityDependencyNode> totalParents = new HashSet<>();
             tuple.getT2().forEach(reference -> {
-                if ((types & ACTION_ENTITY_REFERENCES) == ACTION_ENTITY_REFERENCES) {
+                if ((types & EXECUTABLE_ENTITY_REFERENCES) == EXECUTABLE_ENTITY_REFERENCES) {
                     totalParents.addAll(MustacheHelper.getPossibleActions(reference));
                 }
                 if ((types & WIDGET_ENTITY_REFERENCES) == WIDGET_ENTITY_REFERENCES) {

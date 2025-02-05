@@ -1,22 +1,35 @@
 import { isPromise } from "workers/Evaluation/JSObject/utils";
-import { postJSFunctionExecutionLog } from "@appsmith/workers/Evaluation/JSObject/postJSFunctionExecution";
 import TriggerEmitter, { BatchKey } from "./TriggerEmitter";
 import ExecutionMetaData from "./ExecutionMetaData";
+
+// TODO: Fix this the next time the file is edited
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function addMetaDataToError(e: any, fnName: string, fnString: string) {
+  // To account for cascaded errors, if error has a source, retain it
+  e.source = e.source || fnName;
+  e.userScript = e.userScript || fnString;
+
+  return e;
+}
 
 declare global {
   interface Window {
     structuredClone: (
+      // TODO: Fix this the next time the file is edited
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       value: any,
       options?: StructuredSerializeOptions | undefined,
+      // TODO: Fix this the next time the file is edited
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ) => any;
   }
 }
-export type PostProcessorArg = {
+export interface PostProcessorArg {
   executionMetaData: ReturnType<typeof ExecutionMetaData.getExecutionMetaData>;
   jsFnFullName: string;
   executionResponse: unknown;
   isSuccess: boolean;
-};
+}
 
 export type PostProcessor = (args: PostProcessorArg) => void;
 export interface JSExecutionData {
@@ -37,18 +50,29 @@ function saveExecutionData({
 export function jsObjectFunctionFactory<P extends ReadonlyArray<unknown>>(
   fn: (...args: P) => unknown,
   name: string,
-  postProcessors: PostProcessor[] = [
-    saveExecutionData,
-    postJSFunctionExecutionLog,
-  ],
+  postProcessors: PostProcessor[] = [saveExecutionData],
 ) {
   return function (this: unknown, ...args: P) {
     if (!ExecutionMetaData.getExecutionMetaData().enableJSFnPostProcessors) {
-      return fn.call(this, ...args);
+      let result;
+
+      try {
+        result = fn.call(this, ...args);
+
+        return result;
+        // TODO: Fix this the next time the file is edited
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (e: any) {
+        e = addMetaDataToError(e, name, fn.toString());
+        throw e;
+      }
     }
+
     const executionMetaData = ExecutionMetaData.getExecutionMetaData();
+
     try {
       const result = fn.call(this, ...args);
+
       if (isPromise(result)) {
         result.then((res) => {
           postProcessors.forEach((p) =>
@@ -59,9 +83,11 @@ export function jsObjectFunctionFactory<P extends ReadonlyArray<unknown>>(
               isSuccess: true,
             }),
           );
+
           return res;
         });
         result.catch((e) => {
+          e = addMetaDataToError(e, name, fn.toString());
           postProcessors.forEach((p) =>
             p({
               executionMetaData,
@@ -82,8 +108,12 @@ export function jsObjectFunctionFactory<P extends ReadonlyArray<unknown>>(
           }),
         );
       }
+
       return result;
-    } catch (e) {
+      // TODO: Fix this the next time the file is edited
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
+      e = addMetaDataToError(e, name, fn.toString());
       postProcessors.forEach((postProcessor) => {
         postProcessor({
           executionMetaData,

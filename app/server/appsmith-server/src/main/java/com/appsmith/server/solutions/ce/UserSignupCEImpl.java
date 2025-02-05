@@ -2,28 +2,31 @@ package com.appsmith.server.solutions.ce;
 
 import com.appsmith.external.constants.AnalyticsEvents;
 import com.appsmith.server.authentication.handlers.AuthenticationSuccessHandler;
-import com.appsmith.server.configurations.CommonConfig;
 import com.appsmith.server.constants.FieldName;
 import com.appsmith.server.domains.LoginSource;
+import com.appsmith.server.domains.Tenant;
+import com.appsmith.server.domains.TenantConfiguration;
 import com.appsmith.server.domains.User;
 import com.appsmith.server.domains.UserData;
 import com.appsmith.server.domains.UserState;
-import com.appsmith.server.dtos.EnvChangesResponseDTO;
 import com.appsmith.server.dtos.UserSignupDTO;
 import com.appsmith.server.dtos.UserSignupRequestDTO;
 import com.appsmith.server.exceptions.AppsmithError;
 import com.appsmith.server.exceptions.AppsmithException;
+import com.appsmith.server.helpers.LoadShifter;
 import com.appsmith.server.helpers.NetworkUtils;
 import com.appsmith.server.helpers.UserUtils;
 import com.appsmith.server.services.AnalyticsService;
 import com.appsmith.server.services.CaptchaService;
 import com.appsmith.server.services.ConfigService;
+import com.appsmith.server.services.EmailService;
+import com.appsmith.server.services.TenantService;
 import com.appsmith.server.services.UserDataService;
 import com.appsmith.server.services.UserService;
 import com.appsmith.server.solutions.EnvManager;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
-import org.apache.http.client.utils.URIBuilder;
+import org.apache.hc.core5.net.URIBuilder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -53,14 +56,17 @@ import static com.appsmith.external.constants.AnalyticsConstants.SUBSCRIBE_MARKE
 import static com.appsmith.server.constants.Appsmith.DEFAULT_ORIGIN_HEADER;
 import static com.appsmith.server.constants.EnvVariables.APPSMITH_ADMIN_EMAILS;
 import static com.appsmith.server.constants.EnvVariables.APPSMITH_DISABLE_TELEMETRY;
+import static com.appsmith.server.constants.ce.FieldNameCE.DEFAULT;
 import static com.appsmith.server.constants.ce.FieldNameCE.EMAIL;
 import static com.appsmith.server.constants.ce.FieldNameCE.NAME;
+import static com.appsmith.server.constants.ce.FieldNameCE.PROFICIENCY;
 import static com.appsmith.server.constants.ce.FieldNameCE.ROLE;
+import static com.appsmith.server.constants.ce.FieldNameCE.TENANT;
 import static com.appsmith.server.helpers.RedirectHelper.REDIRECT_URL_QUERY_PARAM;
 import static com.appsmith.server.helpers.ValidationUtils.LOGIN_PASSWORD_MAX_LENGTH;
 import static com.appsmith.server.helpers.ValidationUtils.LOGIN_PASSWORD_MIN_LENGTH;
 import static com.appsmith.server.helpers.ValidationUtils.validateEmail;
-import static com.appsmith.server.helpers.ValidationUtils.validateLoginPassword;
+import static com.appsmith.server.helpers.ValidationUtils.validateUserPassword;
 import static org.springframework.security.web.server.context.WebSessionServerSecurityContextRepository.DEFAULT_SPRING_SECURITY_CONTEXT_ATTR_NAME;
 
 @Slf4j
@@ -73,9 +79,10 @@ public class UserSignupCEImpl implements UserSignupCE {
     private final ConfigService configService;
     private final AnalyticsService analyticsService;
     private final EnvManager envManager;
-    private final CommonConfig commonConfig;
     private final UserUtils userUtils;
     private final NetworkUtils networkUtils;
+    private final EmailService emailService;
+    private final TenantService tenantService;
 
     private static final ServerRedirectStrategy redirectStrategy = new DefaultServerRedirectStrategy();
 
@@ -89,9 +96,10 @@ public class UserSignupCEImpl implements UserSignupCE {
             ConfigService configService,
             AnalyticsService analyticsService,
             EnvManager envManager,
-            CommonConfig commonConfig,
             UserUtils userUtils,
-            NetworkUtils networkUtils) {
+            NetworkUtils networkUtils,
+            EmailService emailService,
+            TenantService tenantService) {
 
         this.userService = userService;
         this.userDataService = userDataService;
@@ -100,9 +108,10 @@ public class UserSignupCEImpl implements UserSignupCE {
         this.configService = configService;
         this.analyticsService = analyticsService;
         this.envManager = envManager;
-        this.commonConfig = commonConfig;
         this.userUtils = userUtils;
         this.networkUtils = networkUtils;
+        this.emailService = emailService;
+        this.tenantService = tenantService;
     }
 
     /**
@@ -121,20 +130,36 @@ public class UserSignupCEImpl implements UserSignupCE {
             return Mono.error(new AppsmithException(AppsmithError.INVALID_PARAMETER, EMAIL));
         }
 
-        if (!validateLoginPassword(user.getPassword())) {
-            return Mono.error(new AppsmithException(
-                    AppsmithError.INVALID_PASSWORD_LENGTH, LOGIN_PASSWORD_MIN_LENGTH, LOGIN_PASSWORD_MAX_LENGTH));
-        }
+        Mono<Tenant> tenantMono = tenantService
+                .getDefaultTenant()
+                .switchIfEmpty(Mono.error(new AppsmithException(AppsmithError.NO_RESOURCE_FOUND, DEFAULT, TENANT)));
 
-        Mono<UserSignupDTO> createUserAndSendEmailMono = userService
-                .createUserAndSendEmail(user, exchange.getRequest().getHeaders().getOrigin())
-                .elapsed()
-                .map(pair -> {
-                    log.debug("UserSignupCEImpl::Time taken for create user and send email: {} ms", pair.getT1());
-                    return pair.getT2();
-                });
+        // - Only creating user if the password strength is acceptable as per the tenant policy
+        // - Welcome email will be sent post user email verification
+        Mono<UserSignupDTO> createUserMono = tenantMono.flatMap(tenant -> {
+            TenantConfiguration tenantConfiguration = tenant.getTenantConfiguration();
+            boolean isStrongPasswordPolicyEnabled = tenantConfiguration != null
+                    && Boolean.TRUE.equals(tenantConfiguration.getIsStrongPasswordPolicyEnabled());
 
-        return Mono.zip(createUserAndSendEmailMono, exchange.getSession(), ReactiveSecurityContextHolder.getContext())
+            if (!validateUserPassword(user.getPassword(), isStrongPasswordPolicyEnabled)) {
+                return isStrongPasswordPolicyEnabled
+                        ? Mono.error(new AppsmithException(
+                                AppsmithError.INSUFFICIENT_PASSWORD_STRENGTH,
+                                LOGIN_PASSWORD_MIN_LENGTH,
+                                LOGIN_PASSWORD_MAX_LENGTH))
+                        : Mono.error(new AppsmithException(
+                                AppsmithError.INVALID_PASSWORD_LENGTH,
+                                LOGIN_PASSWORD_MIN_LENGTH,
+                                LOGIN_PASSWORD_MAX_LENGTH));
+            }
+
+            return userService.createUser(user).elapsed().map(pair -> {
+                log.debug("UserSignupCEImpl::Time taken for create user and send email: {} ms", pair.getT1());
+                return pair.getT2();
+            });
+        });
+
+        return Mono.zip(createUserMono, exchange.getSession(), ReactiveSecurityContextHolder.getContext())
                 .switchIfEmpty(Mono.error(new AppsmithException(AppsmithError.INTERNAL_SERVER_ERROR)))
                 .flatMap(tuple -> {
                     final User savedUser = tuple.getT1().getUser();
@@ -214,24 +239,33 @@ public class UserSignupCEImpl implements UserSignupCE {
                 .flatMap(user -> signupAndLogin(user, exchange))
                 .then()
                 .onErrorResume(error -> {
+                    String path = "/user/signup";
+
                     String referer = exchange.getRequest().getHeaders().getFirst("referer");
-                    if (referer == null) {
-                        referer = DEFAULT_ORIGIN_HEADER;
+                    if (referer != null) {
+                        try {
+                            path = URI.create(referer).getPath();
+                        } catch (IllegalArgumentException ex) {
+                            // This is okay, we just use the default value for `path`.
+                        }
                     }
-                    final URIBuilder redirectUriBuilder =
-                            new URIBuilder(URI.create(referer)).setParameter("error", error.getMessage());
+
                     URI redirectUri;
                     try {
-                        redirectUri = redirectUriBuilder.build();
+                        redirectUri = new URIBuilder()
+                                .setPath(path)
+                                .setParameter("error", error.getMessage())
+                                .build();
                     } catch (URISyntaxException e) {
                         log.error("Error building redirect URI with error for signup, {}.", e.getMessage(), error);
-                        redirectUri = URI.create(referer);
+                        redirectUri = URI.create("/");
                     }
                     return redirectStrategy.sendRedirect(exchange, redirectUri);
                 });
     }
 
-    public Mono<User> signupAndLoginSuper(UserSignupRequestDTO userFromRequest, ServerWebExchange exchange) {
+    public Mono<User> signupAndLoginSuper(
+            UserSignupRequestDTO userFromRequest, String originHeader, ServerWebExchange exchange) {
         Mono<User> userMono = userService
                 .isUsersEmpty()
                 .flatMap(isEmpty -> {
@@ -266,7 +300,7 @@ public class UserSignupCEImpl implements UserSignupCE {
                 })
                 .flatMap(user -> {
                     final UserData userData = new UserData();
-                    userData.setRole(userFromRequest.getRole());
+                    userData.setProficiency(userFromRequest.getProficiency());
                     userData.setUseCase(userFromRequest.getUseCase());
 
                     Mono<UserData> userDataMono = userDataService
@@ -279,17 +313,22 @@ public class UserSignupCEImpl implements UserSignupCE {
                                 return pair.getT2();
                             });
 
-                    Mono<EnvChangesResponseDTO> applyEnvManagerChangesMono = envManager
-                            .applyChanges(Map.of(
-                                    APPSMITH_DISABLE_TELEMETRY.name(),
-                                    String.valueOf(!userFromRequest.isAllowCollectingAnonymousData()),
-                                    APPSMITH_ADMIN_EMAILS.name(),
-                                    user.getEmail()))
+                    Mono<Void> applyEnvManagerChangesMono = envManager
+                            .applyChanges(
+                                    Map.of(
+                                            APPSMITH_DISABLE_TELEMETRY.name(),
+                                            String.valueOf(!userFromRequest.isAllowCollectingAnonymousData()),
+                                            APPSMITH_ADMIN_EMAILS.name(),
+                                            user.getEmail()),
+                                    originHeader)
+                            // We need a non-empty value for `.elapsed` to work.
+                            .thenReturn(true)
                             .elapsed()
                             .map(pair -> {
                                 log.debug("UserSignupCEImpl::Time taken to apply env changes: {} ms", pair.getT1());
                                 return pair.getT2();
-                            });
+                            })
+                            .then();
 
                     /*
                      * Here, we have decided to move these 2 analytics events to a separate thread.
@@ -307,7 +346,7 @@ public class UserSignupCEImpl implements UserSignupCE {
                     // because
                     // of any other secondary function mono throwing an exception
                     sendInstallationSetupAnalytics(userFromRequest, user, userData)
-                            .subscribeOn(commonConfig.scheduler())
+                            .subscribeOn(LoadShifter.elasticScheduler)
                             .subscribe();
 
                     Mono<Long> allSecondaryFunctions = Mono.when(
@@ -328,7 +367,7 @@ public class UserSignupCEImpl implements UserSignupCE {
         });
     }
 
-    public Mono<Void> signupAndLoginSuperFromFormData(ServerWebExchange exchange) {
+    public Mono<Void> signupAndLoginSuperFromFormData(String originHeader, ServerWebExchange exchange) {
         return exchange.getFormData()
                 .map(formData -> {
                     final UserSignupRequestDTO user = new UserSignupRequestDTO();
@@ -340,8 +379,8 @@ public class UserSignupCEImpl implements UserSignupCE {
                     if (formData.containsKey(FieldName.NAME)) {
                         user.setName(formData.getFirst(FieldName.NAME));
                     }
-                    if (formData.containsKey("role")) {
-                        user.setRole(formData.getFirst("role"));
+                    if (formData.containsKey("proficiency")) {
+                        user.setProficiency(formData.getFirst("proficiency"));
                     }
                     if (formData.containsKey("useCase")) {
                         user.setUseCase(formData.getFirst("useCase"));
@@ -355,7 +394,7 @@ public class UserSignupCEImpl implements UserSignupCE {
                     }
                     return user;
                 })
-                .flatMap(user -> signupAndLoginSuper(user, exchange))
+                .flatMap(user -> signupAndLoginSuper(user, originHeader, exchange))
                 .then()
                 .onErrorResume(error -> {
                     String referer = exchange.getRequest().getHeaders().getFirst("referer");
@@ -397,13 +436,14 @@ public class UserSignupCEImpl implements UserSignupCE {
                     final String instanceId = tuple.getT1();
                     final String ip = tuple.getT2();
                     log.debug("Installation setup complete.");
-                    String newsletterSignedUpUserEmail = userFromRequest.isSignupForNewsletter() ? user.getEmail() : "";
-                    String newsletterSignedUpUserName = userFromRequest.isSignupForNewsletter() ? user.getName() : "";
+                    String newsletterSignedUpUserEmail = user.getEmail();
+                    String newsletterSignedUpUserName = user.getName();
                     Map<String, Object> analyticsProps = new HashMap<>();
                     analyticsProps.put(DISABLE_TELEMETRY, !userFromRequest.isAllowCollectingAnonymousData());
                     analyticsProps.put(SUBSCRIBE_MARKETING, userFromRequest.isSignupForNewsletter());
                     analyticsProps.put(EMAIL, newsletterSignedUpUserEmail);
-                    analyticsProps.put(ROLE, ObjectUtils.defaultIfNull(userData.getRole(), ""));
+                    analyticsProps.put(ROLE, "");
+                    analyticsProps.put(PROFICIENCY, ObjectUtils.defaultIfNull(userData.getProficiency(), ""));
                     analyticsProps.put(GOAL, ObjectUtils.defaultIfNull(userData.getUseCase(), ""));
                     // ip is a reserved keyword for tracking events in Mixpanel though this is allowed in
                     // Segment. Instead of showing the ip as is Mixpanel provides derived property.
@@ -416,7 +456,7 @@ public class UserSignupCEImpl implements UserSignupCE {
 
                     analyticsService.identifyInstance(
                             instanceId,
-                            userData.getRole(),
+                            userData.getProficiency(),
                             userData.getUseCase(),
                             newsletterSignedUpUserEmail,
                             newsletterSignedUpUserName,
